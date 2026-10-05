@@ -13,6 +13,7 @@ services:
       - mosquitto-data:/mosquitto/data
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]  # entrypoint: chown du volume puis drop vers l'user mosquitto
     networks: [internal]
 
   db:

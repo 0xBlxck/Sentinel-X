@@ -34,12 +34,17 @@ if [ ! -f "$CERTS/ca.crt" ]; then
 fi
 
 PASSWD=server/mosquitto/passwd
-: > "$PASSWD"
+rm -f "$PASSWD"
+flag=-c  # -c cree le fichier au 1er utilisateur
 for pair in "$MQTT_API_USER:$MQTT_API_PASSWORD" "$MQTT_ESP_USER:$MQTT_ESP_PASSWORD"; do
   u="${pair%%:*}"; p="${pair#*:}"
-  docker run --rm -v "$(pwd -W 2>/dev/null || pwd)/server/mosquitto:/m" eclipse-mosquitto:2 \
-    mosquitto_passwd -b /m/passwd "$u" "$p"
+  MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W 2>/dev/null || pwd)/server/mosquitto:/m" \
+    eclipse-mosquitto:2 mosquitto_passwd $flag -b /m/passwd "$u" "$p"
+  flag=
 done
+# mosquitto_passwd cree le fichier en 0600 (root) : il doit etre lisible par l'user mosquitto
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W 2>/dev/null || pwd)/server/mosquitto:/m" \
+  --entrypoint chmod eclipse-mosquitto:2 644 /m/passwd
 echo "[+] passwd Mosquitto genere"
 
 # En-tetes firmware (gitignores)
