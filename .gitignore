@@ -1,0 +1,10 @@
+.env
+server/mosquitto/certs/
+server/mosquitto/passwd
+firmware/.pio/
+firmware/include/config.h
+firmware/include/certs.h
+__pycache__/
+*.pyc
+.venv/
+*.pt
