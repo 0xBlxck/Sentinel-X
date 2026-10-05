@@ -1,0 +1,9 @@
+# L'ESP8266 publie la télémétrie et reçoit les commandes
+user esp8266
+topic write sentinel/telemetry/#
+topic read sentinel/cmd/#
+
+# Le backend lit tout et envoie les commandes
+user backend
+topic read sentinel/#
+topic write sentinel/cmd/#

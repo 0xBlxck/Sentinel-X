@@ -1,0 +1,11 @@
+# Secrets et fichiers générés : ne jamais committer
+.env
+infra/certs/
+infra/mosquitto/config/passwd
+infra/mosquitto/data/
+infra/mosquitto/log/
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.pio/
