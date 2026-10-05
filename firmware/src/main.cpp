@@ -78,6 +78,9 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
 
 // Un pas de connexion reseau, jamais bloquant plus de quelques secondes.
 void networkStep() {
+#ifdef SERIAL_BRIDGE
+  return;  // mode pont USB : pas de reseau, les mesures partent par le port serie
+#endif
   if (millis() - lastNet < NET_RETRY_MS) return;
   lastNet = millis();
 
@@ -119,6 +122,13 @@ void networkStep() {
       mqtt.subscribe(TOPIC_CMD, 1);
     } else {
       Serial.printf("[mqtt] KO rc=%d tls=%d\n", mqtt.state(), tlsClient.getLastSSLError());
+      // Diagnostic : le serveur est-il joignable en TCP simple ?
+      WiFiClient probe;
+      probe.setTimeout(3000);
+      Serial.printf("[diag] gw=%s mask=%s tcp %s:%d -> %s\n", WiFi.gatewayIP().toString().c_str(),
+                    WiFi.subnetMask().toString().c_str(), MQTT_HOST, MQTT_PORT,
+                    probe.connect(MQTT_HOST, MQTT_PORT) ? "OK" : "ECHEC");
+      probe.stop();
     }
   }
 }
