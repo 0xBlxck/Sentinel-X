@@ -1,0 +1,6 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+paho-mqtt==2.1.*
+psycopg[binary,pool]==3.2.*
+scikit-learn==1.5.*
+numpy==2.1.*
