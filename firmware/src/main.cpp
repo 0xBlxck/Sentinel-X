@@ -1,6 +1,8 @@
 // Sentinel-X Edge Node : ESP8266 NodeMCU
 // Capteurs : DHT22, MQ-2 (A0), PIR. Sortie : OLED, buzzer actif, LED bicolore.
 // Liaison : MQTT sur TLS (8883) vers le PC serveur.
+// Les capteurs, l'OLED et le port serie fonctionnent meme sans reseau :
+// la connexion Wi-Fi/NTP/MQTT se fait en arriere-plan, sans bloquer la boucle.
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
@@ -24,6 +26,8 @@
 #define TOPIC_TELEMETRY "sentinel/telemetry"
 #define TOPIC_CMD "sentinel/cmd"
 #define SEND_INTERVAL_MS 2000
+#define NET_RETRY_MS 5000
+#define TIME_VALID 1700000000
 
 DHT dht(PIN_DHT, DHT22);
 Adafruit_SSD1306 oled(128, 64, &Wire, -1);
@@ -31,8 +35,12 @@ BearSSL::WiFiClientSecure tlsClient;
 BearSSL::X509List caList(CA_CERT);
 PubSubClient mqtt(tlsClient);
 
-unsigned long lastSend = 0;
+unsigned long lastSend = 0, lastNet = 0;
 bool lastMotion = false;
+bool oledOk = false;
+bool wifiStarted = false;
+bool ntpStarted = false;
+float lastT = NAN, lastH = NAN;
 
 void setLed(const String &color) {
   digitalWrite(PIN_LED_RED, color == "red");
@@ -40,18 +48,23 @@ void setLed(const String &color) {
 }
 
 void drawStatus(float t, float h, int gas, bool motion) {
+  if (!oledOk) return;
   oled.clearDisplay();
   oled.setTextSize(1);
   oled.setTextColor(SSD1306_WHITE);
   oled.setCursor(0, 0);
   oled.println("SENTINEL-X");
   oled.print("IP: ");
-  oled.println(WiFi.localIP());
+  oled.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("-"));
   oled.print("WiFi:");
   oled.print(WiFi.status() == WL_CONNECTED ? "OK " : "KO ");
   oled.print("MQTT:");
   oled.println(mqtt.connected() ? "OK" : "KO");
-  oled.printf("T:%.1fC H:%.0f%%\n", t, h);
+  if (isnan(t) || isnan(h)) {
+    oled.println("DHT22: pas de lecture");
+  } else {
+    oled.printf("T:%.1fC H:%.0f%%\n", t, h);
+  }
   oled.printf("Gaz:%d Mvt:%s\n", gas, motion ? "OUI" : "non");
   oled.display();
 }
@@ -63,22 +76,49 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
 }
 
-void connectWifi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) delay(300);
-  // TLS : le certificat n'est valide que si l'horloge est a l'heure
-  configTime(0, 0, "pool.ntp.org", "time.google.com");
-  while (time(nullptr) < 1700000000) delay(300);
-}
+// Un pas de connexion reseau, jamais bloquant plus de quelques secondes.
+void networkStep() {
+  if (millis() - lastNet < NET_RETRY_MS) return;
+  lastNet = millis();
 
-void connectMqtt() {
-  while (!mqtt.connected()) {
+  if (WiFi.status() != WL_CONNECTED) {
+    static unsigned long lastBegin = 0;
+    if (wifiStarted && millis() - lastBegin < 15000) {
+      Serial.printf("[wifi] en cours (status=%d, 1=reseau introuvable, 6=mauvais mot de passe)\n",
+                    WiFi.status());
+      return;
+    }
+    lastBegin = millis();
+    // Nouvelle tentative propre toutes les 15 s (l'auto-reconnect reste parfois bloque en status 7)
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+    WiFi.setPhyMode(WIFI_PHY_MODE_11G);  // plus tolerant avec les hotspots Windows
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    wifiStarted = true;
+    Serial.printf("[wifi] connexion a '%s'...\n", WIFI_SSID);
+    return;
+  }
+
+  // TLS : le certificat n'est valide que si l'horloge est a l'heure
+  if (!ntpStarted) {
+    Serial.printf("[wifi] OK ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    ntpStarted = true;
+  }
+  if (time(nullptr) < TIME_VALID) {
+    Serial.println("[ntp] en attente de l'heure (internet sur le hotspot ?)");
+    return;
+  }
+
+  if (!mqtt.connected()) {
+    Serial.printf("[mqtt] connexion a %s:%d...\n", MQTT_HOST, MQTT_PORT);
     if (mqtt.connect("sentinel-esp", MQTT_USER, MQTT_PASSWORD)) {
+      Serial.println("[mqtt] OK");
       mqtt.subscribe(TOPIC_CMD, 1);
     } else {
-      Serial.printf("MQTT KO rc=%d tls=%d\n", mqtt.state(), tlsClient.getLastSSLError());
-      delay(2000);
+      Serial.printf("[mqtt] KO rc=%d tls=%d\n", mqtt.state(), tlsClient.getLastSSLError());
     }
   }
 }
@@ -91,39 +131,46 @@ void setup() {
   pinMode(PIN_LED_GREEN, OUTPUT);
   setLed("green");
   dht.begin();
-  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  oled.clearDisplay();
-  oled.println("Connexion WiFi...");
-  oled.display();
+  oledOk = oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  Serial.printf("\n[boot] OLED %s\n", oledOk ? "OK" : "introuvable (0x3C)");
 
-  connectWifi();
   tlsClient.setTrustAnchors(&caList);  // verifie le certificat du serveur (pas de setInsecure)
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onCommand);
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) connectWifi();
-  if (!mqtt.connected()) connectMqtt();
-  mqtt.loop();
+  networkStep();
+  if (mqtt.connected()) mqtt.loop();
 
   if (millis() - lastSend < SEND_INTERVAL_MS) return;
   lastSend = millis();
 
   float t = dht.readTemperature(), h = dht.readHumidity();
-  if (isnan(t) || isnan(h)) return;  // lecture DHT ratee : on saute
   int gas = analogRead(A0);
   bool motion = digitalRead(PIN_PIR);
+  bool dhtOk = !(isnan(t) || isnan(h));
+  if (dhtOk) {
+    lastT = t;
+    lastH = h;
+    Serial.printf("[capteurs] T=%.1fC H=%.1f%% gaz=%d mvt=%d\n", t, h, gas, motion);
+  } else {
+    Serial.printf("[capteurs] DHT22 sans reponse (verifier D5, 3V, GND) gaz=%d mvt=%d\n", gas, motion);
+  }
+  drawStatus(lastT, lastH, gas, motion);
+
+  bool edge = motion && !lastMotion;
+  lastMotion = motion;
+  if (!dhtOk || !mqtt.connected()) return;  // on n'envoie que des mesures valides
 
   JsonDocument doc;
   doc["temp"] = t;
   doc["hum"] = h;
   doc["gas"] = gas;
   doc["motion"] = motion ? 1 : 0;
-  doc["motion_edge"] = (motion && !lastMotion) ? 1 : 0;
-  lastMotion = motion;
+  doc["motion_edge"] = edge ? 1 : 0;
   char buf[160];
   size_t n = serializeJson(doc, buf);
-  mqtt.publish(TOPIC_TELEMETRY, (const uint8_t *)buf, n);
-  drawStatus(t, h, gas, motion);
+  bool sent = mqtt.publish(TOPIC_TELEMETRY, (const uint8_t *)buf, n);
+  Serial.printf("[mqtt] publish %s\n", sent ? "OK" : "ECHEC");
 }
