@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel-X</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root { --bg:#0b0f14; --card:#141b24; --fg:#e6edf3; --mut:#8b98a5; --ok:#2ea043; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid #222c38; }
+  h1 { font-size:18px; margin:0; letter-spacing:.08em; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--bad); margin-right:6px; }
+  .dot.on { background:var(--ok); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; padding:14px 20px; }
+  .card { background:var(--card); border-radius:10px; padding:14px; }
+  .card h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; color:var(--mut); letter-spacing:.08em; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .kpi b { display:block; font-size:24px; }
+  .kpi span { color:var(--mut); font-size:12px; }
+  .wide { grid-column:1/-1; }
+  img.cam { width:100%; border-radius:8px; background:#000; min-height:200px; }
+  button { background:#1f2a37; color:var(--fg); border:1px solid #2d3b4c; border-radius:6px; padding:8px 14px; cursor:pointer; margin:0 6px 6px 0; }
+  button:hover { border-color:var(--acc); }
+  button.danger { border-color:var(--bad); }
+  input { background:#0b0f14; color:var(--fg); border:1px solid #2d3b4c; border-radius:6px; padding:7px 10px; }
+  ul { list-style:none; margin:0; padding:0; max-height:260px; overflow:auto; }
+  li { padding:6px 0; border-bottom:1px solid #1f2a37; }
+  .sev-high,.sev-critical { color:var(--bad); } .sev-medium { color:var(--warn); } .sev-info { color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>SENTINEL-X · AetherCorp</h1>
+  <div><span id="dot" class="dot"></span><span id="state">deconnecte</span>
+    <input id="key" type="password" placeholder="API key" size="18"></div>
+</header>
+<main>
+  <section class="card wide">
+    <h2>Mesures en direct</h2>
+    <div class="kpis">
+      <div class="kpi"><b id="k-temp">--</b><span>Temp. °C</span></div>
+      <div class="kpi"><b id="k-hum">--</b><span>Humidite %</span></div>
+      <div class="kpi"><b id="k-gas">--</b><span>Gaz (ADC)</span></div>
+      <div class="kpi"><b id="k-ml">--</b><span>Modele IA</span></div>
+    </div>
+  </section>
+  <section class="card"><h2>Temperature / Humidite</h2><canvas id="c1"></canvas></section>
+  <section class="card"><h2>Gaz MQ-2</h2><canvas id="c2"></canvas></section>
+  <section class="card">
+    <h2>Camera (YOLO)</h2>
+    <img class="cam" id="cam" alt="flux webcam">
+  </section>
+  <section class="card">
+    <h2>Commandes</h2>
+    <button onclick="cmd({buzzer:true})" class="danger">Buzzer ON</button>
+    <button onclick="cmd({buzzer:false})">Buzzer OFF</button><br>
+    <button onclick="cmd({led:'green'})">LED verte</button>
+    <button onclick="cmd({led:'red'})" class="danger">LED rouge</button>
+    <button onclick="cmd({led:'off'})">LED off</button>
+    <h2 style="margin-top:14px">Alertes</h2>
+    <ul id="alerts"></ul>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const MAX = 60;
+const mk = (id, datasets) => new Chart($(id), {
+  type: 'line',
+  data: { labels: [], datasets: datasets.map(([label, color]) => ({ label, data: [], borderColor: color, tension: .3, pointRadius: 0 })) },
+  options: { animation: false, scales: { x: { ticks: { color: '#8b98a5', maxTicksLimit: 6 } }, y: { ticks: { color: '#8b98a5' } } }, plugins: { legend: { labels: { color: '#e6edf3' } } } }
+});
+const c1 = mk('c1', [['Temp', '#f85149'], ['Hum', '#58a6ff']]);
+const c2 = mk('c2', [['Gaz', '#d29922']]);
+function push(chart, label, ...vals) {
+  chart.data.labels.push(label);
+  vals.forEach((v, i) => chart.data.datasets[i].data.push(v));
+  if (chart.data.labels.length > MAX) { chart.data.labels.shift(); chart.data.datasets.forEach(d => d.data.shift()); }
+  chart.update();
+}
+function addAlert(a) {
+  const li = document.createElement('li');
+  li.className = 'sev-' + a.severity;
+  li.textContent = `${new Date(a.ts).toLocaleTimeString()} [${a.source}] ${a.type} — ${a.message ?? ''}`;
+  $('alerts').prepend(li);
+}
+const keyInput = $('key');
+try { keyInput.value = sessionStorage.getItem('sx-key') || ''; } catch {}
+keyInput.addEventListener('change', () => { try { sessionStorage.setItem('sx-key', keyInput.value); } catch {} connect(); });
+$('cam').src = `http://${location.hostname}:8081/stream`;
+
+async function cmd(body) {
+  const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': keyInput.value }, body: JSON.stringify(body) });
+  if (!r.ok) alert('Commande refusee (' + r.status + ')');
+}
+let ws;
+function connect() {
+  if (!keyInput.value) return;
+  if (ws) ws.close();
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?key=${encodeURIComponent(keyInput.value)}`);
+  ws.onopen = () => { $('dot').classList.add('on'); $('state').textContent = 'connecte'; };
+  ws.onclose = () => { $('dot').classList.remove('on'); $('state').textContent = 'deconnecte'; setTimeout(connect, 3000); };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data), t = new Date().toLocaleTimeString();
+    if (m.kind === 'telemetry') {
+      $('k-temp').textContent = m.temp.toFixed(1);
+      $('k-hum').textContent = m.hum.toFixed(1);
+      $('k-gas').textContent = m.gas;
+      $('k-ml').textContent = !m.model_ready ? 'apprentissage' : (m.anomaly ? 'ANOMALIE' : 'normal');
+      $('k-ml').style.color = m.anomaly ? 'var(--bad)' : '';
+      push(c1, t, m.temp, m.hum); push(c2, t, m.gas);
+    } else if (m.kind === 'alert') addAlert(m);
+  };
+}
+connect();
+</script>
+</body>
+</html>
