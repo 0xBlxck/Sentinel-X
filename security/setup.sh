@@ -26,7 +26,8 @@ if [ ! -f "$CERTS/ca.crt" ]; then
     -out "$CERTS/ca.crt" -subj "/CN=SentinelX-CA"
   MSYS_NO_PATHCONV=1 openssl req -newkey rsa:2048 -nodes -keyout "$CERTS/server.key" \
     -out "$CERTS/server.csr" -subj "/CN=$SERVER_IP"
-  printf "subjectAltName=IP:%s\n" "$SERVER_IP" > "$CERTS/san.ext"
+  # DNS + IP : BearSSL (ESP8266) ne verifie que le nom DNS, pas l'IP, quand on se connecte par IP
+  printf "subjectAltName=DNS:%s,IP:%s\n" "$SERVER_IP" "$SERVER_IP" > "$CERTS/san.ext"
   openssl x509 -req -in "$CERTS/server.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
     -CAcreateserial -out "$CERTS/server.crt" -days 365 -extfile "$CERTS/san.ext"
   chmod 644 "$CERTS"/server.key  # lisible par l'utilisateur mosquitto dans le conteneur
