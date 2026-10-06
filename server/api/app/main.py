@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -24,6 +25,8 @@ DASHBOARD_DIR = Path("/app/dashboard")
 pool = ConnectionPool(os.environ["DATABASE_URL"], min_size=1, max_size=4, open=False)
 detector = AnomalyDetector()
 clients: set[WebSocket] = set()
+ML_ALERT_COOLDOWN = 30.0  # secondes entre deux alertes d'anomalie
+last_ml_alert = 0.0
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 loop: asyncio.AbstractEventLoop | None = None
 
@@ -69,7 +72,9 @@ def handle_telemetry(payload: dict) -> None:
             "VALUES (%s,%s,%s,%s,%s,%s)", (temp, hum, gas, motion, score, anomaly))
     events = [{"kind": "telemetry", "temp": temp, "hum": hum, "gas": gas, "motion": motion,
                "score": score, "anomaly": anomaly, "model_ready": detector.ready}]
-    if anomaly:
+    global last_ml_alert
+    if anomaly and time.monotonic() - last_ml_alert >= ML_ALERT_COOLDOWN:
+        last_ml_alert = time.monotonic()
         events.append({"kind": "alert", **store_alert(
             "ml", "anomaly", "high", "Anomalie detectee par Isolation Forest",
             {"temp": temp, "hum": hum, "gas": gas, "score": score})})

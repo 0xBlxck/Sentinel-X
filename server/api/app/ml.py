@@ -13,6 +13,7 @@ from sklearn.ensemble import IsolationForest
 MIN_TRAIN = 60       # mesures minimum avant d'entrainer
 WINDOW = 600         # fenetre glissante d'apprentissage
 REFIT_EVERY = 30     # re-entrainement toutes les N mesures
+PERSIST = 10         # N anomalies consecutives = nouveau regime normal (derive lente, changement de piece)
 
 
 class AnomalyDetector:
@@ -21,6 +22,7 @@ class AnomalyDetector:
         self._last: tuple | None = None
         self._model: IsolationForest | None = None
         self._since_fit = 0
+        self._streak = 0
         self._lock = Lock()
 
     @property
@@ -44,8 +46,10 @@ class AnomalyDetector:
                 arr = np.array([x])
                 score = float(self._model.decision_function(arr)[0])
                 anomaly = bool(self._model.predict(arr)[0] == -1)
-            # On n'apprend pas sur les points juges anormaux (evite la derive)
-            if not anomaly:
+            # On n'apprend pas sur les points anormaux (evite la derive), sauf si l'etat
+            # anormal persiste : c'est alors un nouveau regime de fonctionnement.
+            self._streak = self._streak + 1 if anomaly else 0
+            if not anomaly or self._streak >= PERSIST:
                 self._rows.append(x)
                 self._since_fit += 1
             if len(self._rows) >= MIN_TRAIN and (self._model is None or self._since_fit >= REFIT_EVERY):
