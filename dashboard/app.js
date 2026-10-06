@@ -13,7 +13,8 @@ const C = Object.fromEntries(['acc', 'ok', 'warn', 'bad', 'temp', 'hum', 'gas', 
 const MONO = css.getPropertyValue('--mono');
 
 const LABELS = {
-  type: { intrusion: 'Intrusion détectée', anomaly: 'Anomalie capteurs', motion: 'Mouvement détecté' },
+  type: { intrusion: 'Intrusion détectée', anomaly: 'Anomalie capteurs', motion: 'Mouvement détecté',
+    unknown_face: 'Visage inconnu', access: 'Accès autorisé' },
   source: { vision: 'Vision', ml: 'IA', esp8266: 'Boîtier' },
   sev: { info: 'Info', medium: 'Moyenne', high: 'Haute', critical: 'Critique' },
 };
@@ -442,7 +443,7 @@ function onAlert(a) {
   renderAlerts(a.id);
   renderThreat();
   log('alert', `[${a.source}] ${a.type} ${a.severity} — ${a.message || ''}`);
-  if (a.source === 'vision') onDetection(a);
+  if (a.type === 'intrusion' || a.type === 'unknown_face') onDetection(a);
   if (a.severity === 'high' || a.severity === 'critical') openCritical(a);
   else { toast(alertTitle(a), a.message || LABELS.source[a.source] || a.source, a.severity); beep(CHIME); }
 }
@@ -572,8 +573,10 @@ async function checkCam() {
   const on = !!st?.camera && img.naturalWidth > 0;
   $('cam-info').textContent = !st ? 'détecteur arrêté' : !st.camera ? 'caméra déconnectée, reconnexion…'
     : `${fmt(st.cam_fps, 0)} fps · YOLO ${fmt(st.infer_ms, 0)} ms`;
+  renderWho(st);
   if (on !== state.camOn) {
     state.camOn = on;
+    if (on) loadFaces();
     $('feed').dataset.state = on ? 'on' : 'off';
     log('cam', on ? 'Flux vision connecté' : 'Flux vision perdu');
     renderLinks();
@@ -582,6 +585,85 @@ async function checkCam() {
   else if (!st && ++camMiss % 3 === 0) img.removeAttribute('src');
 }
 $('cam').onerror = () => $('cam').removeAttribute('src');
+
+// ---------- controle d'acces (reconnaissance faciale) ----------
+async function camApi(path, opts = {}) {
+  const r = await fetch(CAM + path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-API-Key': state.key } });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || String(r.status));
+  return body;
+}
+
+function renderWho(st) {
+  const who = $('who');
+  if (!st?.camera || st.face_recognition === false) {
+    $('access-info').textContent = st?.face_recognition === false ? 'désactivée (--no-faces)' : 'caméra requise';
+    who.innerHTML = '<span class="empty-who">Caméra inactive</span>';
+    return;
+  }
+  $('access-info').textContent = 'reconnaissance faciale';
+  if (!st.faces?.length) { who.innerHTML = '<span class="empty-who">Aucun visage dans le champ</span>'; return; }
+  who.replaceChildren(...st.faces.map((f) => {
+    const chip = document.createElement('span');
+    chip.className = 'face-chip ' + (f.small ? 'small' : f.name ? 'known' : 'unknown');
+    chip.textContent = f.small ? 'Trop loin' : f.name || 'INCONNU';
+    if (!f.small) {
+      const i = document.createElement('i');
+      i.textContent = Math.round(f.score * 100) + ' %';
+      chip.append(i);
+    }
+    return chip;
+  }));
+}
+
+async function loadFaces() {
+  if (state.stopped) return;
+  try { renderFaces(await camApi('/faces')); } catch { /* detecteur arrete */ }
+}
+
+function renderFaces(list) {
+  const ul = $('faces');
+  if (!list.length) { ul.innerHTML = '<li class="empty">AUCUN VISAGE AUTORISÉ · ALARME INACTIVE</li>'; return; }
+  ul.replaceChildren(...list.map((f) => {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="av"></span><b></b><span></span><button type="button" title="Retirer l’autorisation">✕</button>';
+    li.children[0].textContent = f.name.slice(0, 2).toUpperCase();
+    li.children[1].textContent = f.name;
+    li.children[2].textContent = `${f.samples} échant.`;
+    li.children[3].onclick = async () => {
+      if (!confirm(`Retirer ${f.name} des visages autorisés ?`)) return;
+      try {
+        await camApi('/faces/' + encodeURIComponent(f.name), { method: 'DELETE' });
+        log('cam', `Visage retiré : ${f.name}`);
+        loadFaces();
+      } catch (e) { toast('Suppression impossible', e.message, 'high'); }
+    };
+    return li;
+  }));
+}
+
+$('enroll-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = $('enroll-form'), note = $('enroll-note'), name = $('enroll-name').value.trim();
+  form.classList.add('busy');
+  $('enroll-btn').disabled = true;
+  note.className = 'note';
+  note.textContent = `Capture de ${name}… regardez la caméra et bougez légèrement la tête.`;
+  try {
+    const r = await camApi('/faces', { method: 'POST', body: JSON.stringify({ name }) });
+    note.className = 'note ok';
+    note.textContent = `${r.name} autorisé (${r.samples} échantillons). Recommencez sous un autre angle pour fiabiliser.`;
+    log('cam', `Visage enregistré : ${r.name} (${r.samples} échantillons)`);
+    $('enroll-name').value = '';
+    loadFaces();
+  } catch (err) {
+    note.className = 'note err';
+    note.textContent = `Échec : ${err.message === 'Failed to fetch' ? 'détecteur vision injoignable' : err.message}`;
+  } finally {
+    form.classList.remove('busy');
+    $('enroll-btn').disabled = false;
+  }
+});
 
 // ---------- commandes ----------
 async function command(body, label) {
@@ -603,6 +685,13 @@ async function command(body, label) {
   } finally {
     btns.forEach((b) => (b.disabled = false));
   }
+}
+function onCommand(m) {
+  const { kind, ...cmd } = m;
+  if (Object.entries(cmd).every(([k, v]) => state.device[k] === v)) return;  // deja connu (commande locale)
+  Object.assign(state.device, cmd);
+  renderDevice();
+  log('cmd', `Actionneurs : ${Object.entries(cmd).map(([k, v]) => `${k}=${v}`).join(' ')} (autre opérateur ou vision)`);
 }
 function renderDevice() {
   const { buzzer, led } = state.device;
@@ -656,6 +745,7 @@ function connect() {
     try { m = JSON.parse(e.data); } catch { return; }
     if (m.kind === 'telemetry') onTelemetry(m);
     else if (m.kind === 'alert') onAlert(m);
+    else if (m.kind === 'command') onCommand(m);
   };
 }
 
@@ -697,6 +787,7 @@ async function start() {
   renderThreat();
   drawCharts();
   pollHealth();
+  loadFaces();
   connect();
 }
 
@@ -775,7 +866,7 @@ renderLinks();
 tick();
 setInterval(tick, 1000);
 setInterval(() => !state.stopped && pollHealth(), 5000);
-setInterval(checkCam, 2000);
+setInterval(checkCam, 1000);
 
 state.key = load('sessionStorage', 'sx-key') || '';
 if (state.key) start();

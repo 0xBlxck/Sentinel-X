@@ -179,6 +179,18 @@
     <p class="note" id="cmd-note">Aucune commande envoyée.</p>
   </section>
 
+  <!-- Controle d'acces -->
+  <section class="panel access">
+    <h2>Contrôle d'accès <small id="access-info">reconnaissance faciale</small></h2>
+    <div class="who" id="who"><span class="empty-who">Aucun visage dans le champ</span></div>
+    <form class="enroll" id="enroll-form" autocomplete="off">
+      <input id="enroll-name" maxlength="32" placeholder="Nom de la personne" required>
+      <button type="submit" class="big ok" id="enroll-btn"><b>Enregistrer</b></button>
+    </form>
+    <p class="note" id="enroll-note">Face à la caméra, bougez légèrement la tête pendant 3 s.</p>
+    <ul class="face-list" id="faces"></ul>
+  </section>
+
   <!-- Alertes -->
   <section class="panel alerts">
     <h2>Journal des alertes <small id="alerts-count"></small></h2>
