@@ -167,7 +167,7 @@ def alert(type_: str, severity: str, message: str, data: dict) -> None:
         if type_ == "unknown_face" and not args.no_buzzer:
             api_post("/api/v1/command", {"buzzer": True, "led": "red"})
         elif type_ == "access" and not args.no_buzzer:
-            api_post("/api/v1/command", {"chime": "access"})
+            api_post("/api/v1/command", {"chime": "access", "who": data.get("name", "")[:16]})
     threading.Thread(target=send, daemon=True).start()
 
 

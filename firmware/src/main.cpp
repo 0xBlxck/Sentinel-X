@@ -101,30 +101,128 @@ void setLed(const String &color) {
   digitalWrite(PIN_LED_GREEN, color == "green");
 }
 
-void drawStatus(float t, float h, int gas, bool motion) {
+// ---------- Ecran OLED 128x64 ----------
+// 3 ecrans : normal (mesures), alarme (clignotant tant que le buzzer sonne),
+// accueil (prenom de la personne reconnue par la camera, quelques secondes).
+int curGas = 0;
+bool curMotion = false;
+String welcomeName;
+unsigned long welcomeUntil = 0, lastOled = 0;
+
+void centerText(const String &s, int y, int size) {
+  oled.setTextSize(size);
+  oled.setCursor((128 - (int)s.length() * 6 * size) / 2, y);
+  oled.print(s);
+}
+
+void drawHeader() {
+  oled.fillRect(0, 0, 128, 12, SSD1306_WHITE);
+  oled.setTextColor(SSD1306_BLACK);
+  oled.setTextSize(1);
+  oled.setCursor(3, 2);
+  oled.print("SENTINEL-X");
+#ifdef SERIAL_BRIDGE
+  oled.setCursor(106, 2);
+  oled.print("USB");
+#else
+  long rssi = WiFi.RSSI();
+  int bars = WiFi.status() != WL_CONNECTED ? 0 : rssi > -55 ? 4 : rssi > -65 ? 3 : rssi > -75 ? 2 : 1;
+  for (int i = 0; i < 4; i++) {  // force du Wi-Fi
+    int h = 3 + i * 2;
+    if (i < bars) oled.fillRect(98 + i * 4, 10 - h, 3, h, SSD1306_BLACK);
+    else oled.drawPixel(99 + i * 4, 9, SSD1306_BLACK);
+  }
+  // pastille MQTT : pleine = session chiffree active
+  if (mqtt.connected()) oled.fillCircle(121, 6, 3, SSD1306_BLACK);
+  else oled.drawCircle(121, 6, 3, SSD1306_BLACK);
+#endif
+  oled.setTextColor(SSD1306_WHITE);
+}
+
+void drawNormal() {
+  drawHeader();
+  // temperature (gauche) et humidite (droite) en grand
+  oled.setTextSize(2);
+  oled.setCursor(0, 17);
+  if (isnan(lastT)) oled.print("--.-");
+  else oled.printf("%.1f", lastT);
+  int x = oled.getCursorX();
+  oled.drawCircle(x + 3, 19, 2, SSD1306_WHITE);  // symbole degre
+  oled.setTextSize(1);
+  oled.setCursor(x + 7, 17);
+  oled.print("C");
+  String hum = isnan(lastH) ? String("--%") : String((int)round(lastH)) + "%";
+  oled.setTextSize(2);
+  oled.setCursor(128 - hum.length() * 12, 17);
+  oled.print(hum);
+  oled.setTextSize(1);
+  oled.setCursor(0, 35);
+  oled.print("TEMP");
+  oled.setCursor(128 - 8 * 6, 35);
+  oled.print("HUMIDITE");
+  oled.drawFastHLine(0, 45, 128, SSD1306_WHITE);
+  // gaz et presence
+  oled.setCursor(0, 48);
+  oled.printf("GAZ %d", curGas);
+  if (curMotion) {
+    oled.fillRect(84, 47, 44, 9, SSD1306_WHITE);
+    oled.setTextColor(SSD1306_BLACK);
+  }
+  oled.setCursor(curMotion ? 87 : 90, 48);
+  oled.print(curMotion ? "PRESENCE" : "R.A.S.");
+  oled.setTextColor(SSD1306_WHITE);
+  // adresse du boitier
+  oled.setCursor(0, 57);
+#ifdef SERIAL_BRIDGE
+  oled.print("liaison USB -> PC");
+#else
+  oled.print(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("wifi..."));
+#endif
+}
+
+void drawAlarm() {
+  oled.drawRect(0, 0, 128, 64, SSD1306_WHITE);
+  oled.drawRect(2, 2, 124, 60, SSD1306_WHITE);
+  centerText("! ALERTE !", 10, 2);
+  centerText("INTRUS DETECTE", 34, 1);
+  centerText("visage inconnu", 46, 1);
+}
+
+void drawWelcome() {
+  drawHeader();
+  centerText("ACCES AUTORISE", 18, 1);
+  // coche
+  oled.drawLine(56, 34, 61, 39, SSD1306_WHITE);
+  oled.drawLine(61, 39, 71, 29, SSD1306_WHITE);
+  oled.drawLine(56, 35, 61, 40, SSD1306_WHITE);
+  oled.drawLine(61, 40, 71, 30, SSD1306_WHITE);
+  centerText(welcomeName, 46, welcomeName.length() <= 10 ? 2 : 1);
+}
+
+void oledTick() {
+  if (!oledOk || millis() - lastOled < 200) return;
+  lastOled = millis();
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  if (buzzerOn) {
+    drawAlarm();
+    oled.invertDisplay((millis() / 400) % 2);  // clignotement
+  } else {
+    oled.invertDisplay(false);
+    if (millis() < welcomeUntil) drawWelcome();
+    else drawNormal();
+  }
+  oled.display();
+}
+
+void splash() {
   if (!oledOk) return;
   oled.clearDisplay();
-  oled.setTextSize(1);
   oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.println("SENTINEL-X");
-#ifdef SERIAL_BRIDGE
-  oled.println("Liaison: USB (pont)");
-  oled.println("MQTTS via le PC");
-#else
-  oled.print("IP: ");
-  oled.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("-"));
-  oled.print("WiFi:");
-  oled.print(WiFi.status() == WL_CONNECTED ? "OK " : "KO ");
-  oled.print("MQTT:");
-  oled.println(mqtt.connected() ? "OK" : "KO");
-#endif
-  if (isnan(t) || isnan(h)) {
-    oled.println("DHT22: pas de lecture");
-  } else {
-    oled.printf("T:%.1fC H:%.0f%%\n", t, h);
-  }
-  oled.printf("Gaz:%d Mvt:%s\n", gas, motion ? "OUI" : "non");
+  oled.drawRect(0, 0, 128, 64, SSD1306_WHITE);
+  centerText("SENTINEL-X", 14, 2);
+  centerText("AetherCorp", 36, 1);
+  centerText("demarrage...", 48, 1);
   oled.display();
 }
 
@@ -139,7 +237,17 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
   // sonnerie ponctuelle : {"chime":"access"} ou {"chime":"beep"} (ignoree pendant l'alarme)
   if (doc["chime"].is<const char *>() && !buzzerOn) {
     String c = doc["chime"].as<String>();
-    if (c == "access") play(TUNE_ACCESS, sizeof(TUNE_ACCESS) / 2, false);
+    if (c == "access") {
+      play(TUNE_ACCESS, sizeof(TUNE_ACCESS) / 2, false);
+      // prenom affiche sur l'OLED : police sans accents, on garde l'ASCII imprimable
+      String who = doc["who"].is<const char *>() ? doc["who"].as<String>() : String("");
+      welcomeName = "";
+      for (size_t i = 0; i < who.length() && welcomeName.length() < 16; i++) {
+        char ch = who[i];
+        if (ch >= 32 && ch < 127) welcomeName += (char)toupper(ch);
+      }
+      welcomeUntil = millis() + 4000;
+    }
     else if (c == "beep") play(TUNE_BEEP, sizeof(TUNE_BEEP) / 2, false);
   }
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
@@ -234,6 +342,7 @@ void setup() {
   oledOk = oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   Serial.printf("\n[boot] OLED %s, redemarrage : %s\n", oledOk ? "OK" : "introuvable (0x3C)",
                 ESP.getResetReason().c_str());
+  splash();
 
   tlsClient.setTrustAnchors(&caList);  // verifie le certificat du serveur (pas de setInsecure)
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
@@ -251,6 +360,7 @@ void loop() {
   networkStep();
   tuneTick();
   if (mqtt.connected()) mqtt.loop();
+  if (millis() > 1500) oledTick();  // laisse l'ecran de demarrage visible
 
   if (millis() - lastSend < SEND_INTERVAL_MS) return;
   lastSend = millis();
@@ -266,7 +376,8 @@ void loop() {
   } else {
     Serial.printf("[capteurs] DHT22 sans reponse (verifier D5, 3V, GND) gaz=%d mvt=%d\n", gas, motion);
   }
-  drawStatus(lastT, lastH, gas, motion);
+  curGas = gas;
+  curMotion = motion;
 
   bool edge = motion && !lastMotion;
   lastMotion = motion;
