@@ -36,8 +36,10 @@ cd server && docker compose --env-file ../.env up -d --build
 cd ../firmware && pio run -t upload && pio device monitor
 
 # 4. Vision (sur le PC, webcam USB)
-cd ../vision && pip install -r requirements.txt
-API_KEY=<voir .env> python detect.py
+#    Python du Microsoft Store : pas d'acces webcam. Utiliser un Python standard (ex. uv).
+cd ../vision && uv venv .venv --python-preference only-managed --python 3.12
+uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+API_KEY=<voir .env> .venv/Scripts/python.exe detect.py --camera 1   # essayer 0/1/2
 ```
 Dashboard : `http://<IP>:8000`, saisir l'API key (`API_KEY` dans `.env`).
 

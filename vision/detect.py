@@ -43,17 +43,36 @@ def post_alert(count: int, conf: float, ms: float) -> None:
         print("alert post failed:", exc, flush=True)
 
 
+def open_camera(index: int) -> "cv2.VideoCapture":
+    """Ouvre la camera en essayant plusieurs moteurs Windows (DirectShow puis MSMF)."""
+    backends = [("DSHOW", cv2.CAP_DSHOW), ("MSMF", cv2.CAP_MSMF)] if os.name == "nt" else [("ANY", cv2.CAP_ANY)]
+    for name, be in backends:
+        cap = cv2.VideoCapture(index, be)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        if cap.isOpened() and cap.read()[0]:
+            print(f"[camera] index {index} ouverte ({name})", flush=True)
+            return cap
+        print(f"[camera] index {index} : echec avec {name}", flush=True)
+        cap.release()
+    return cv2.VideoCapture(index)  # derniere chance, la boucle signalera l'absence d'image
+
+
 def capture_loop() -> None:
     global latest_jpeg
-    cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap = open_camera(args.camera)
     last_alert = 0.0
+    fails = 0
     while True:
         ok, frame = cap.read()
         if not ok:
+            fails += 1
+            if fails % 10 == 1:
+                print(f"[camera] pas d'image (index {args.camera}) : essayez --camera 0/1/2, "
+                      "fermez les applis qui utilisent la webcam", flush=True)
             time.sleep(0.5)
             continue
+        fails = 0
         frame = cv2.resize(frame, (640, 480))
         t0 = time.perf_counter()
         res = model.predict(frame, classes=[0], conf=args.conf, imgsz=640, verbose=False)[0]
