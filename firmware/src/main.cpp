@@ -1,6 +1,7 @@
 // Sentinel-X Edge Node : ESP8266 NodeMCU
 // Capteurs : DHT22, MQ-2 (A0), PIR. Sortie : OLED, buzzer actif, LED bicolore.
-// Liaison : MQTT sur TLS (8883) vers le PC serveur.
+// Liaison : MQTT sur TLS (8883) vers le PC serveur, ou pont USB (env bridge) :
+// mesures envoyees sur le port serie, commandes JSON recues ligne par ligne.
 // Les capteurs, l'OLED et le port serie fonctionnent meme sans reseau :
 // la connexion Wi-Fi/NTP/MQTT se fait en arriere-plan, sans bloquer la boucle.
 #include <Adafruit_GFX.h>
@@ -42,7 +43,10 @@ bool wifiStarted = false;
 bool ntpStarted = false;
 float lastT = NAN, lastH = NAN;
 
+String ledState = "off";  // GPIO16 (D0) se relit mal : on memorise l'etat demande
+
 void setLed(const String &color) {
+  ledState = color == "red" || color == "green" ? color : "off";
   digitalWrite(PIN_LED_RED, color == "red");
   digitalWrite(PIN_LED_GREEN, color == "green");
 }
@@ -54,12 +58,17 @@ void drawStatus(float t, float h, int gas, bool motion) {
   oled.setTextColor(SSD1306_WHITE);
   oled.setCursor(0, 0);
   oled.println("SENTINEL-X");
+#ifdef SERIAL_BRIDGE
+  oled.println("Liaison: USB (pont)");
+  oled.println("MQTTS via le PC");
+#else
   oled.print("IP: ");
   oled.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("-"));
   oled.print("WiFi:");
   oled.print(WiFi.status() == WL_CONNECTED ? "OK " : "KO ");
   oled.print("MQTT:");
   oled.println(mqtt.connected() ? "OK" : "KO");
+#endif
   if (isnan(t) || isnan(h)) {
     oled.println("DHT22: pas de lecture");
   } else {
@@ -74,7 +83,26 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
   if (deserializeJson(doc, payload, len)) return;
   if (doc["buzzer"].is<bool>()) digitalWrite(PIN_BUZZER, doc["buzzer"].as<bool>());
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
+  Serial.printf("[cmd] buzzer=%d led=%s\n", digitalRead(PIN_BUZZER),
+                ledState.c_str());
 }
+
+#ifdef SERIAL_BRIDGE
+// Pont USB : le PC renvoie les commandes du broker sous forme d'une ligne JSON.
+void serialCommands() {
+  static char line[128];
+  static size_t len = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      if (len) onCommand(nullptr, (byte *)line, len);
+      len = 0;
+    } else if (c != '\r' && len < sizeof(line) - 1) {
+      line[len++] = c;
+    }
+  }
+}
+#endif
 
 // Un pas de connexion reseau, jamais bloquant plus de quelques secondes.
 void networkStep() {
@@ -150,6 +178,9 @@ void setup() {
 }
 
 void loop() {
+#ifdef SERIAL_BRIDGE
+  serialCommands();
+#endif
   networkStep();
   if (mqtt.connected()) mqtt.loop();
 
