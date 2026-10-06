@@ -123,6 +123,7 @@ class AlertIn(BaseModel):
 class CommandIn(BaseModel):
     buzzer: bool | None = None
     led: Literal["green", "red", "off"] | None = None
+    chime: Literal["access", "beep"] | None = None  # sonnerie ponctuelle du buzzer
 
 
 @app.post("/api/v1/alerts", status_code=201, dependencies=[Depends(require_key)])

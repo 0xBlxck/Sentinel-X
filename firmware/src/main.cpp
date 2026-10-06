@@ -52,8 +52,48 @@ bool wifiStarted = false;
 bool ntpStarted = false;
 float lastT = NAN, lastH = NAN;
 
-bool buzzerOn = false;
+bool buzzerOn = false;    // alarme en cours (boucle)
 String ledState = "off";  // GPIO16 (D0) se relit mal : on memorise l'etat demande
+
+// ---------- Sonneries ----------
+// Buzzer actif : une seule note, on joue donc sur le rythme. Chaque sonnerie est une suite
+// de durees en ms alternant son / silence, jouee sans bloquer la boucle (capteurs, reseau).
+const uint16_t TUNE_ALARM[] = {90, 60, 90, 60, 90, 60, 90, 60, 550, 350};  // 4 bips rapides + note longue
+const uint16_t TUNE_ACCESS[] = {45, 45, 45, 45, 160};                      // gazouillis "acces autorise"
+const uint16_t TUNE_BEEP[] = {150};                                        // bip de test
+const uint16_t *tune = nullptr;
+uint8_t tuneLen = 0, tuneStep = 0;
+bool tuneLoop = false;
+unsigned long tuneAt = 0;
+
+void play(const uint16_t *steps, uint8_t len, bool loop) {
+  tune = steps;
+  tuneLen = len;
+  tuneLoop = loop;
+  tuneStep = 0;
+  tuneAt = millis();
+  digitalWrite(PIN_BUZZER, BUZZER_ON);  // les pas pairs sont sonores
+}
+
+void stopTune() {
+  tune = nullptr;
+  digitalWrite(PIN_BUZZER, BUZZER_OFF);
+}
+
+void tuneTick() {
+  if (!tune || millis() - tuneAt < tune[tuneStep]) return;
+  tuneAt = millis();
+  if (++tuneStep >= tuneLen) {
+    if (!tuneLoop) {
+      stopTune();
+      // une sonnerie courte jouee pendant l'alarme lui rend la main
+      if (buzzerOn) play(TUNE_ALARM, sizeof(TUNE_ALARM) / 2, true);
+      return;
+    }
+    tuneStep = 0;
+  }
+  digitalWrite(PIN_BUZZER, tuneStep % 2 == 0 ? BUZZER_ON : BUZZER_OFF);
+}
 
 void setLed(const String &color) {
   ledState = color == "red" || color == "green" ? color : "off";
@@ -93,7 +133,14 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
   if (deserializeJson(doc, payload, len)) return;
   if (doc["buzzer"].is<bool>()) {
     buzzerOn = doc["buzzer"].as<bool>();
-    digitalWrite(PIN_BUZZER, buzzerOn ? BUZZER_ON : BUZZER_OFF);
+    if (buzzerOn) play(TUNE_ALARM, sizeof(TUNE_ALARM) / 2, true);
+    else stopTune();
+  }
+  // sonnerie ponctuelle : {"chime":"access"} ou {"chime":"beep"} (ignoree pendant l'alarme)
+  if (doc["chime"].is<const char *>() && !buzzerOn) {
+    String c = doc["chime"].as<String>();
+    if (c == "access") play(TUNE_ACCESS, sizeof(TUNE_ACCESS) / 2, false);
+    else if (c == "beep") play(TUNE_BEEP, sizeof(TUNE_BEEP) / 2, false);
   }
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
   Serial.printf("[cmd] buzzer=%d led=%s\n", buzzerOn,
@@ -200,7 +247,9 @@ void loop() {
 #ifdef SERIAL_BRIDGE
   serialCommands();
 #endif
+  tuneTick();
   networkStep();
+  tuneTick();
   if (mqtt.connected()) mqtt.loop();
 
   if (millis() - lastSend < SEND_INTERVAL_MS) return;

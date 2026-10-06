@@ -687,7 +687,9 @@ async function command(body, label) {
   }
 }
 function onCommand(m) {
-  const { kind, ...cmd } = m;
+  const { kind, chime, ...cmd } = m;
+  if (chime) log('cmd', `Sonnerie « ${chime} » jouée par le boîtier`);
+  if (!Object.keys(cmd).length) return;
   if (Object.entries(cmd).every(([k, v]) => state.device[k] === v)) return;  // deja connu (commande locale)
   Object.assign(state.device, cmd);
   renderDevice();
