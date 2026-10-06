@@ -154,9 +154,11 @@ def list_telemetry(limit: int = 200):
 
 
 @app.post("/api/v1/command", dependencies=[Depends(require_key)])
-def post_command(cmd: CommandIn):
+async def post_command(cmd: CommandIn):
     payload = cmd.model_dump(exclude_none=True)
     mqtt_client.publish(TOPIC_CMD, json.dumps(payload), qos=1)
+    # tous les dashboards voient l'etat des actionneurs, meme si la commande vient de la vision
+    await broadcast({"kind": "command", **payload})
     return {"sent": payload}
 
 
