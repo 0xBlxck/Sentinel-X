@@ -3,117 +3,247 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel-X</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<style>
-  :root { --bg:#0b0f14; --card:#141b24; --fg:#e6edf3; --mut:#8b98a5; --ok:#2ea043; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui,sans-serif; }
-  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid #222c38; }
-  h1 { font-size:18px; margin:0; letter-spacing:.08em; }
-  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--bad); margin-right:6px; }
-  .dot.on { background:var(--ok); }
-  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px; padding:14px 20px; }
-  .card { background:var(--card); border-radius:10px; padding:14px; }
-  .card h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; color:var(--mut); letter-spacing:.08em; }
-  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
-  .kpi b { display:block; font-size:24px; }
-  .kpi span { color:var(--mut); font-size:12px; }
-  .wide { grid-column:1/-1; }
-  img.cam { width:100%; border-radius:8px; background:#000; min-height:200px; }
-  button { background:#1f2a37; color:var(--fg); border:1px solid #2d3b4c; border-radius:6px; padding:8px 14px; cursor:pointer; margin:0 6px 6px 0; }
-  button:hover { border-color:var(--acc); }
-  button.danger { border-color:var(--bad); }
-  input { background:#0b0f14; color:var(--fg); border:1px solid #2d3b4c; border-radius:6px; padding:7px 10px; }
-  ul { list-style:none; margin:0; padding:0; max-height:260px; overflow:auto; }
-  li { padding:6px 0; border-bottom:1px solid #1f2a37; }
-  .sev-high,.sev-critical { color:var(--bad); } .sev-medium { color:var(--warn); } .sev-info { color:var(--acc); }
-</style>
+<title>Sentinel-X · Centre de commandement</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7z' fill='%2305080d' stroke='%233ee6ff' stroke-width='2'/%3E%3Cpath d='M10 16h4l2-5 2 10 2-5h2' fill='none' stroke='%233ee6ff' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<header>
-  <h1>SENTINEL-X · AetherCorp</h1>
-  <div><span id="dot" class="dot"></span><span id="state">deconnecte</span>
-    <input id="key" type="password" placeholder="API key" size="18"></div>
+<div class="bg" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7z" />
+      <path class="pulse" d="M9 16h4l2-5 2 10 2-5h4" />
+    </svg>
+    <div>
+      <h1>SENTINEL<span>-X</span></h1>
+      <p>AetherCorp · Centrale isolée Δ-7</p>
+    </div>
+  </div>
+
+  <ul class="links" aria-label="État des liaisons">
+    <li id="st-ws"><i></i>Liaison</li>
+    <li id="st-mqtt"><i></i>MQTT/TLS</li>
+    <li id="st-esp"><i></i>Boîtier</li>
+    <li id="st-ai"><i></i>IA</li>
+    <li id="st-cam"><i></i>Caméra</li>
+  </ul>
+
+  <div class="tools">
+    <div class="clock"><b id="clock">--:--:--</b><span id="date">----</span></div>
+    <button class="icon" id="btn-mute" title="Son des alertes (M)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="on" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/><path class="off" d="m16 9 6 6m0-6-6 6"/></svg>
+    </button>
+    <button class="icon" id="btn-full" title="Plein écran (F)">
+      <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+    <button class="icon" id="btn-logout" title="Déconnexion">
+      <svg viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M18 12H9"/></svg>
+    </button>
+  </div>
 </header>
-<main>
-  <section class="card wide">
-    <h2>Mesures en direct</h2>
-    <div class="kpis">
-      <div class="kpi"><b id="k-temp">--</b><span>Temp. °C</span></div>
-      <div class="kpi"><b id="k-hum">--</b><span>Humidite %</span></div>
-      <div class="kpi"><b id="k-gas">--</b><span>Gaz (ADC)</span></div>
-      <div class="kpi"><b id="k-ml">--</b><span>Modele IA</span></div>
+
+<main class="grid">
+  <!-- Niveau de menace -->
+  <section class="panel threat" id="threat" data-level="0">
+    <h2>Niveau de menace</h2>
+    <div class="gauge">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="track" cx="100" cy="100" r="84" />
+        <circle class="arc" id="threat-arc" cx="100" cy="100" r="84" />
+        <g class="ticks" id="threat-ticks"></g>
+        <circle class="sweep" cx="100" cy="100" r="70" />
+      </svg>
+      <div class="gauge-label">
+        <b id="threat-level">NOMINAL</b>
+        <span id="threat-desc">Aucune menace active</span>
+      </div>
+    </div>
+    <dl class="counters">
+      <div><dt>Alertes 1 h</dt><dd id="cnt-alerts">0</dd></div>
+      <div><dt>Intrusions</dt><dd id="cnt-intrusion">0</dd></div>
+      <div><dt>Anomalies</dt><dd id="cnt-anomaly">0</dd></div>
+    </dl>
+  </section>
+
+  <!-- Mesures -->
+  <section class="panel metrics">
+    <h2>Capteurs du boîtier <small id="last-seen">en attente de données…</small></h2>
+    <div class="tiles">
+      <article class="tile" data-k="temp">
+        <header><span>Température</span><em>DHT22</em></header>
+        <div class="value"><b id="v-temp">--</b><u>°C</u><i class="delta" id="d-temp"></i></div>
+        <div class="plot spark"><canvas id="s-temp"></canvas></div>
+        <footer><span>min <b id="mn-temp">--</b></span><span>max <b id="mx-temp">--</b></span></footer>
+      </article>
+      <article class="tile" data-k="hum">
+        <header><span>Humidité</span><em>DHT22</em></header>
+        <div class="value"><b id="v-hum">--</b><u>%</u><i class="delta" id="d-hum"></i></div>
+        <div class="plot spark"><canvas id="s-hum"></canvas></div>
+        <footer><span>min <b id="mn-hum">--</b></span><span>max <b id="mx-hum">--</b></span></footer>
+      </article>
+      <article class="tile" data-k="gas">
+        <header><span>Gaz / fumée</span><em>MQ-2</em></header>
+        <div class="value"><b id="v-gas">--</b><u>ADC</u><i class="delta" id="d-gas"></i></div>
+        <div class="plot spark"><canvas id="s-gas"></canvas></div>
+        <footer><span>min <b id="mn-gas">--</b></span><span>max <b id="mx-gas">--</b></span></footer>
+      </article>
+      <article class="tile presence" data-k="motion" id="tile-motion">
+        <header><span>Présence</span><em>PIR</em></header>
+        <div class="radar" aria-hidden="true"><i></i><i></i><i></i><s></s></div>
+        <div class="value"><b id="v-motion">--</b></div>
+        <footer><span>dernier mvt <b id="last-motion">--</b></span></footer>
+      </article>
     </div>
   </section>
-  <section class="card"><h2>Temperature / Humidite</h2><canvas id="c1"></canvas></section>
-  <section class="card"><h2>Gaz MQ-2</h2><canvas id="c2"></canvas></section>
-  <section class="card">
-    <h2>Camera (YOLO)</h2>
-    <img class="cam" id="cam" alt="flux webcam">
+
+  <!-- Caméra -->
+  <section class="panel cam">
+    <h2>Vision · YOLOv8 <small id="cam-info">flux :8081</small></h2>
+    <div class="feed" id="feed" data-state="off">
+      <img id="cam" alt="Flux caméra annoté par YOLO">
+      <div class="hud" aria-hidden="true">
+        <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+        <span class="rec"><i></i>REC</span>
+        <span class="cam-id">CAM-01 · ZONE ACCÈS</span>
+        <span class="cam-ts" id="cam-ts"></span>
+        <div class="scan"></div>
+      </div>
+      <div class="nosignal">
+        <svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6H15l2 3h3v9M6 6H4v12h12"/><circle cx="12" cy="13" r="3"/></svg>
+        <b>SIGNAL PERDU</b>
+        <span>Lancer <code>vision/detect.py</code> sur le PC serveur</span>
+      </div>
+    </div>
+    <dl class="cam-stats">
+      <div><dt>Dernière détection</dt><dd id="det-time">--</dd></div>
+      <div><dt>Personnes</dt><dd id="det-count">--</dd></div>
+      <div><dt>Confiance</dt><dd id="det-conf">--</dd></div>
+      <div><dt>Inférence</dt><dd id="det-ms">--</dd></div>
+    </dl>
   </section>
-  <section class="card">
-    <h2>Commandes</h2>
-    <button onclick="cmd({buzzer:true})" class="danger">Buzzer ON</button>
-    <button onclick="cmd({buzzer:false})">Buzzer OFF</button><br>
-    <button onclick="cmd({led:'green'})">LED verte</button>
-    <button onclick="cmd({led:'red'})" class="danger">LED rouge</button>
-    <button onclick="cmd({led:'off'})">LED off</button>
-    <h2 style="margin-top:14px">Alertes</h2>
-    <ul id="alerts"></ul>
+
+  <!-- Environnement -->
+  <section class="panel chart-env">
+    <h2>Environnement <small>5 dernières minutes</small>
+      <span class="legend"><i class="temp"></i>Temp °C<i class="hum"></i>Hum %<i class="mk"></i>Anomalie</span>
+    </h2>
+    <div class="plot chart"><canvas id="c-env"></canvas></div>
+  </section>
+
+  <!-- IA -->
+  <section class="panel chart-ai">
+    <h2>Maintenance prédictive <small>Isolation Forest</small></h2>
+    <div class="ai-state" id="ai-state" data-s="learn">
+      <b id="ai-label">APPRENTISSAGE</b>
+      <div class="bar"><i id="ai-progress"></i></div>
+      <span id="ai-sub">0 / 60 mesures</span>
+    </div>
+    <div class="plot chart"><canvas id="c-ai"></canvas></div>
+    <p class="note">Score de normalité : sous 0, la mesure sort du régime appris.</p>
+  </section>
+
+  <!-- Gaz -->
+  <section class="panel chart-gas">
+    <h2>Qualité de l'air <small>MQ-2 brut</small></h2>
+    <div class="plot chart"><canvas id="c-gas"></canvas></div>
+  </section>
+
+  <!-- Commandes -->
+  <section class="panel controls">
+    <h2>Actionneurs <small>commande MQTT → ESP8266</small></h2>
+    <div class="device">
+      <div class="led" id="dev-led" data-c="off"><i></i><span>LED</span></div>
+      <div class="buzz" id="dev-buzz" data-on="0">
+        <svg viewBox="0 0 24 24"><path d="M6 10a6 6 0 0 1 12 0v4l2 3H4l2-3z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+        <span>Buzzer</span>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Buzzer</span>
+      <button class="switch" id="sw-buzz" role="switch" aria-checked="false" title="Buzzer marche / arrêt"><i></i></button>
+    </div>
+    <div class="row">
+      <span class="lbl">LED</span>
+      <div class="seg" id="seg-led">
+        <button data-led="green">Verte</button>
+        <button data-led="red">Rouge</button>
+        <button data-led="off" class="on">Off</button>
+      </div>
+    </div>
+    <div class="macros">
+      <button class="big danger" id="m-alarm"><b>Alerte générale</b><span>buzzer + LED rouge</span></button>
+      <button class="big ok" id="m-clear"><b>Levée d'alerte</b><span>buzzer off + LED verte</span></button>
+    </div>
+    <p class="note" id="cmd-note">Aucune commande envoyée.</p>
+  </section>
+
+  <!-- Alertes -->
+  <section class="panel alerts">
+    <h2>Journal des alertes <small id="alerts-count"></small></h2>
+    <div class="filters">
+      <div class="chips" id="f-source">
+        <button data-v="" class="on">Toutes</button>
+        <button data-v="vision">Vision</button>
+        <button data-v="ml">IA</button>
+        <button data-v="esp8266">Boîtier</button>
+      </div>
+      <div class="chips" id="f-sev">
+        <button data-v="" class="on">Toutes gravités</button>
+        <button data-v="critical">Critique</button>
+        <button data-v="high">Haute</button>
+        <button data-v="medium">Moyenne</button>
+        <button data-v="info">Info</button>
+      </div>
+    </div>
+    <ol class="alert-list" id="alerts"></ol>
+  </section>
+
+  <!-- Journal système -->
+  <section class="panel log">
+    <h2>Journal système</h2>
+    <ol class="console" id="log"></ol>
   </section>
 </main>
-<script>
-const $ = (id) => document.getElementById(id);
-const MAX = 60;
-const mk = (id, datasets) => new Chart($(id), {
-  type: 'line',
-  data: { labels: [], datasets: datasets.map(([label, color]) => ({ label, data: [], borderColor: color, tension: .3, pointRadius: 0 })) },
-  options: { animation: false, scales: { x: { ticks: { color: '#8b98a5', maxTicksLimit: 6 } }, y: { ticks: { color: '#8b98a5' } } }, plugins: { legend: { labels: { color: '#e6edf3' } } } }
-});
-const c1 = mk('c1', [['Temp', '#f85149'], ['Hum', '#58a6ff']]);
-const c2 = mk('c2', [['Gaz', '#d29922']]);
-function push(chart, label, ...vals) {
-  chart.data.labels.push(label);
-  vals.forEach((v, i) => chart.data.datasets[i].data.push(v));
-  if (chart.data.labels.length > MAX) { chart.data.labels.shift(); chart.data.datasets.forEach(d => d.data.shift()); }
-  chart.update();
-}
-function addAlert(a) {
-  const li = document.createElement('li');
-  li.className = 'sev-' + a.severity;
-  li.textContent = `${new Date(a.ts).toLocaleTimeString()} [${a.source}] ${a.type} — ${a.message ?? ''}`;
-  $('alerts').prepend(li);
-}
-const keyInput = $('key');
-try { keyInput.value = sessionStorage.getItem('sx-key') || ''; } catch {}
-keyInput.addEventListener('change', () => { try { sessionStorage.setItem('sx-key', keyInput.value); } catch {} connect(); });
-$('cam').src = `http://${location.hostname}:8081/stream`;
 
-async function cmd(body) {
-  const r = await fetch('/api/v1/command', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': keyInput.value }, body: JSON.stringify(body) });
-  if (!r.ok) alert('Commande refusee (' + r.status + ')');
-}
-let ws;
-function connect() {
-  if (!keyInput.value) return;
-  if (ws) ws.close();
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?key=${encodeURIComponent(keyInput.value)}`);
-  ws.onopen = () => { $('dot').classList.add('on'); $('state').textContent = 'connecte'; };
-  ws.onclose = () => { $('dot').classList.remove('on'); $('state').textContent = 'deconnecte'; setTimeout(connect, 3000); };
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data), t = new Date().toLocaleTimeString();
-    if (m.kind === 'telemetry') {
-      $('k-temp').textContent = m.temp.toFixed(1);
-      $('k-hum').textContent = m.hum.toFixed(1);
-      $('k-gas').textContent = m.gas;
-      $('k-ml').textContent = !m.model_ready ? 'apprentissage' : (m.anomaly ? 'ANOMALIE' : 'normal');
-      $('k-ml').style.color = m.anomaly ? 'var(--bad)' : '';
-      push(c1, t, m.temp, m.hum); push(c2, t, m.gas);
-    } else if (m.kind === 'alert') addAlert(m);
-  };
-}
-connect();
-</script>
+<!-- Authentification -->
+<div class="overlay login" id="login" hidden>
+  <form class="login-box" id="login-form" autocomplete="off">
+    <svg class="logo logo-lg" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7z" />
+      <path class="pulse" d="M9 16h4l2-5 2 10 2-5h4" />
+    </svg>
+    <h1>SENTINEL<span>-X</span></h1>
+    <p>Centre de commandement · accès opérateur</p>
+    <label for="key">Clé d'accès API</label>
+    <input id="key" type="password" spellcheck="false" placeholder="••••••••••••••••" required>
+    <button type="submit" class="big ok"><b>Authentification</b></button>
+    <span class="err" id="login-err"></span>
+    <small>Clé conservée pour cette session uniquement.</small>
+  </form>
+</div>
+
+<!-- Alerte critique plein écran -->
+<div class="overlay critical" id="critical" hidden>
+  <div class="crit-box" role="alertdialog" aria-labelledby="crit-title">
+    <div class="crit-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></svg>
+    </div>
+    <small id="crit-source">ALERTE</small>
+    <h2 id="crit-title">INTRUSION DÉTECTÉE</h2>
+    <p id="crit-msg"></p>
+    <dl id="crit-data"></dl>
+    <div class="crit-actions">
+      <button class="big danger" id="crit-alarm"><b>Déclencher l'alarme</b><span>buzzer + LED rouge</span></button>
+      <button class="big" id="crit-ack"><b>Acquitter</b><span>Échap</span></button>
+    </div>
+    <span class="crit-count" id="crit-count"></span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/static/app.js"></script>
 </body>
 </html>
