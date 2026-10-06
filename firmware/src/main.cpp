@@ -340,6 +340,25 @@ void setup() {
   setLed("green");
   dht.begin();
   // Scan I2C : oled.begin() reussit meme sans ecran, on verifie qu'un peripherique repond
+  // Diagnostic electrique : un module OLED alimente tire SDA et SCL a 3,3 V (resistances
+  // de rappel integrees). Sans pull-up interne, une ligne a 0 = fil absent ou module non alimente.
+  {
+    int lv[2][2];
+    const uint8_t lines[2] = {D2, D1};
+    for (int i = 0; i < 2; i++) {
+      pinMode(lines[i], INPUT);
+      delay(5);
+      lv[i][0] = digitalRead(lines[i]);
+      pinMode(lines[i], INPUT_PULLUP);
+      delay(5);
+      lv[i][1] = digitalRead(lines[i]);
+    }
+    Serial.printf("\n[i2c] niveaux D2(SDA) libre=%d pullup=%d | D1(SCL) libre=%d pullup=%d", lv[0][0], lv[0][1],
+                  lv[1][0], lv[1][1]);
+    if (lv[0][1] == 0 || lv[1][1] == 0) Serial.print(" -> ligne court-circuitee a GND ?");
+    else if (lv[0][0] == 0 || lv[1][0] == 0) Serial.print(" -> ecran non relie ou non alimente (VCC/GND)");
+    else Serial.print(" -> lignes tirees a 3,3 V : ecran alimente et relie");
+  }
   // Les deux sens sont essayes : SDA/SCL croises est l'erreur de cablage la plus frequente.
   uint8_t oledAddr = 0;
   const uint8_t pins[2][2] = {{D2, D1}, {D1, D2}};  // {SDA, SCL}
