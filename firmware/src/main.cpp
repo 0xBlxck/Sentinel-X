@@ -185,11 +185,15 @@ void setup() {
   setLed("green");
   dht.begin();
   oledOk = oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  Serial.printf("\n[boot] OLED %s\n", oledOk ? "OK" : "introuvable (0x3C)");
+  Serial.printf("\n[boot] OLED %s, redemarrage : %s\n", oledOk ? "OK" : "introuvable (0x3C)",
+                ESP.getResetReason().c_str());
 
   tlsClient.setTrustAnchors(&caList);  // verifie le certificat du serveur (pas de setInsecure)
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onCommand);
+  // Hotspot de telephone : latence irreguliere (pics > 250 ms), on tolere plus de silence
+  mqtt.setKeepAlive(30);
+  mqtt.setSocketTimeout(10);
 }
 
 void loop() {
