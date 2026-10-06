@@ -1,13 +1,15 @@
 # Guide DEV : interface de supervision
 
-Le dashboard actuel (`dashboard/index.html`, JS natif + Chart.js) est une **version fonctionnelle de départ**.
+Le dashboard (`dashboard/index.html`, `app.css`, `app.js`) est en JS natif **sans aucune dépendance externe** :
+il fonctionne sur le Wi-Fi de table sans Internet (graphiques canvas maison, aucun CDN).
 L'équipe DEV peut le refaire ou l'améliorer (React, Vue ou JS natif, au choix du sujet) sans toucher au reste :
 il suffit de respecter le contrat ci-dessous. L'API sert la page sur `http://<IP>:8000/`.
 
 ## Lancer l'environnement
 Voir le README (`security/setup.sh`, puis `docker compose --env-file ../.env up -d --build` dans `server/`).
 La clé d'API est dans `.env` (`API_KEY=`). **Ne jamais la committer.**
-Pour développer sans l'ESP : `python tools/serial_bridge.py` (ESP en USB) ou publier des mesures de test en MQTT.
+Pour développer sans l'ESP : `python tools/serial_bridge.py` (ESP en USB) ou le simulateur
+`uv run --with paho-mqtt python tools/simulate.py --host <IP> --scenario demo`.
 
 ## Authentification
 Toutes les routes (sauf `/api/v1/health` et `/`) exigent l'en-tête `X-API-Key: <clé>`.

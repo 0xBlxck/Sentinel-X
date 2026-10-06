@@ -2,14 +2,14 @@
 
 Légende : `[x]` fait et **vérifié** · `[~]` fait mais **pas encore testé / partiel** · `[ ]` à faire
 
-Dernière mise à jour : 2026-10-06 (après vision YOLO). Cocher au fur et à mesure (et committer ce fichier).
+Dernière mise à jour : 2026-10-06 (après refonte du dashboard). Cocher au fur et à mesure (et committer ce fichier).
 
 ## 0. Cadrage
 - [x] Choix d'architecture : option B (PC portable = serveur local)
 - [x] Dépôt GitHub créé : `0xBlxck/Sentinel-X`
 - [ ] Schémas réseau et flux validés par les coachs (obligatoire selon le sujet)
 - [ ] Répartition des filières dans l'équipe (DEV / IA / INFRA / CYBER) notée ici : ______
-- [ ] **Pousser les commits sur GitHub** (une dizaine de commits locaux non poussés)
+- [x] Pousser les commits sur GitHub
 
 ## 1. Infrastructure (INFRA)
 - [x] docker-compose : Mosquitto + PostgreSQL + API
@@ -27,13 +27,14 @@ Dernière mise à jour : 2026-10-06 (après vision YOLO). Cocher au fur et à me
 - [x] `POST /api/v1/command` (buzzer, LED) : l'API publie bien
 - [x] `GET /api/v1/telemetry`, `GET /api/v1/alerts`, `GET /api/v1/health`
 - [x] Réception MQTT → base de données (68+ mesures réelles de l'ESP)
-- [~] WebSocket `/ws` temps réel (écrit, pas testé avec un navigateur)
+- [x] WebSocket `/ws` temps réel (vérifié dans Chrome avec le simulateur)
 
 ## 3. Dashboard (DEV)
-- [~] Courbes température / humidité / gaz (écrit, **pas encore vu dans un navigateur**)
-- [~] Liste des alertes
-- [~] Boutons buzzer / LED
-- [ ] Flux webcam visible dans le dashboard
+- [x] Centre de commandement refait (sans dépendance, hors Internet) : niveau de menace, tuiles capteurs, courbes avec marqueurs d'anomalie, score IA, journal système
+- [x] Courbes température / humidité / gaz, score Isolation Forest (vérifiées dans Chrome)
+- [x] Journal des alertes filtrable (source / gravité), alerte critique plein écran avec sirène
+- [~] Boutons buzzer / LED + macros (commande publiée, retour ESP à tester)
+- [~] Flux webcam intégré avec HUD (à valider avec `vision/detect.py` lancé)
 - [ ] Vérifier l'affichage sur le PC de démo (clé API saisie)
 
 ## 4. Firmware ESP8266 (IoT)

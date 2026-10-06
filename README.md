@@ -18,7 +18,8 @@ ESP8266 --MQTTS 8883--> Mosquitto --> API (FastAPI) --> PostgreSQL
 | `firmware/` | PlatformIO, C++ ESP8266 |
 | `server/` | docker-compose (mosquitto, db, api) |
 | `vision/` | detection de personnes sur webcam (sur l'hote, pas dans Docker) |
-| `dashboard/` | interface web (JS natif + Chart.js), servie par l'API |
+| `dashboard/` | centre de commandement web (JS natif, sans dependance : fonctionne hors Internet), servi par l'API |
+| `tools/` | pont USB -> MQTTS, simulateur de boitier (scenarios de demo) |
 | `security/` | PKI/secrets, durcissement Windows et Linux |
 
 ## Demarrage
@@ -42,6 +43,14 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 API_KEY=<voir .env> .venv/Scripts/python.exe detect.py --camera 1   # essayer 0/1/2
 ```
 Dashboard : `http://<IP>:8000`, saisir l'API key (`API_KEY` dans `.env`).
+Raccourcis : `F` plein ecran, `M` son des alertes, `Echap` acquitter une alerte critique.
+
+Sans ESP (developpement, repetition, plan B de demo) : le simulateur publie sur le broker
+avec le compte ESP, les mesures suivent le vrai chemin (MQTT/TLS -> API -> IA -> dashboard).
+```bash
+uv run --with paho-mqtt python tools/simulate.py --host <IP_DU_CERTIFICAT> --scenario demo
+# scenarios : normal | chauffe | fuite | intrusion | demo (apprentissage accelere puis boucle)
+```
 
 ## Brochage (NodeMCU)
 | Composant | Broche |
