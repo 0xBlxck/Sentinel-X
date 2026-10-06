@@ -562,20 +562,26 @@ function renderLinks() {
 }
 
 // ---------- camera ----------
-const camUrl = () => `http://${location.hostname}:8081/stream`;
+// vision/detect.py tourne sur le PC serveur : flux MJPEG sur /stream, etat JSON sur /status
+const CAM = `http://${location.hostname}:8090`;
 let camMiss = 0;
-function checkCam() {
+async function checkCam() {
+  let st = null;
+  try { st = await (await fetch(CAM + '/status', { signal: AbortSignal.timeout(1500) })).json(); } catch { /* detecteur arrete */ }
   const img = $('cam');
-  const on = img.naturalWidth > 0;
+  const on = !!st?.camera && img.naturalWidth > 0;
+  $('cam-info').textContent = !st ? 'détecteur arrêté' : !st.camera ? 'caméra déconnectée, reconnexion…'
+    : `${fmt(st.cam_fps, 0)} fps · YOLO ${fmt(st.infer_ms, 0)} ms`;
   if (on !== state.camOn) {
     state.camOn = on;
     $('feed').dataset.state = on ? 'on' : 'off';
     log('cam', on ? 'Flux vision connecté' : 'Flux vision perdu');
     renderLinks();
   }
-  if (!on && ++camMiss % 3 === 0) img.src = camUrl() + '?t=' + Date.now();
+  if (st && !img.naturalWidth) img.src = `${CAM}/stream?t=${Date.now()}`;
+  else if (!st && ++camMiss % 3 === 0) img.removeAttribute('src');
 }
-$('cam').onerror = () => { $('cam').removeAttribute('src'); checkCam(); };
+$('cam').onerror = () => $('cam').removeAttribute('src');
 
 // ---------- commandes ----------
 async function command(body, label) {
@@ -769,7 +775,6 @@ renderLinks();
 tick();
 setInterval(tick, 1000);
 setInterval(() => !state.stopped && pollHealth(), 5000);
-$('cam').src = camUrl();
 setInterval(checkCam, 2000);
 
 state.key = load('sessionStorage', 'sx-key') || '';

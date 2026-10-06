@@ -253,7 +253,7 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 .hud .rec i { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: blink 1s infinite; }
 .feed[data-state="off"] .rec { display: none; }
 .hud .cam-id { position: absolute; top: 16px; right: 40px; }
-.hud .cam-ts { position: absolute; bottom: 16px; left: 40px; }
+.hud .cam-ts { position: absolute; top: 34px; right: 40px; color: rgba(228, 238, 247, .6); }
 .hud .scan { position: absolute; left: 0; right: 0; height: 30%; background: linear-gradient(transparent, rgba(62, 230, 255, .07), transparent); animation: scan 3.5s linear infinite; }
 @keyframes scan { from { top: -30%; } to { top: 100%; } }
 .feed.detect { border-color: var(--bad); box-shadow: 0 0 30px -6px var(--bad); }
