@@ -340,17 +340,22 @@ void setup() {
   setLed("green");
   dht.begin();
   // Scan I2C : oled.begin() reussit meme sans ecran, on verifie qu'un peripherique repond
-  Wire.begin();
+  // Les deux sens sont essayes : SDA/SCL croises est l'erreur de cablage la plus frequente.
   uint8_t oledAddr = 0;
-  Serial.print("\n[i2c] peripheriques :");
-  for (uint8_t a = 1; a < 127; a++) {
-    Wire.beginTransmission(a);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf(" 0x%02X", a);
-      if (a == 0x3C || a == 0x3D) oledAddr = a;
+  const uint8_t pins[2][2] = {{D2, D1}, {D1, D2}};  // {SDA, SCL}
+  for (auto &p : pins) {
+    Wire.begin(p[0], p[1]);
+    Serial.printf("\n[i2c] SDA=%s SCL=%s :", p[0] == D2 ? "D2" : "D1", p[1] == D1 ? "D1" : "D2");
+    for (uint8_t a = 1; a < 127; a++) {
+      Wire.beginTransmission(a);
+      if (Wire.endTransmission() == 0) {
+        Serial.printf(" 0x%02X", a);
+        if (a == 0x3C || a == 0x3D) oledAddr = a;
+      }
     }
+    if (oledAddr) break;
   }
-  Serial.println(oledAddr ? "" : " aucun ecran (verifier SDA=D2, SCL=D1, VCC=3V3, GND)");
+  Serial.println(oledAddr ? "" : " aucun ecran (verifier VCC=3V3, GND, SDA=D2, SCL=D1)");
   oledOk = oledAddr && oled.begin(SSD1306_SWITCHCAPVCC, oledAddr);
   Serial.printf("\n[boot] OLED %s, redemarrage : %s\n", oledOk ? "OK" : "introuvable (0x3C)",
                 ESP.getResetReason().c_str());
