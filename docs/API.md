@@ -39,7 +39,7 @@ Alerte :
 Sources d'alertes : `ml` (anomalie Isolation Forest), `vision` (intrusion YOLO), `esp8266` (mouvement PIR).
 
 ## Flux caméra
-Le script `vision/detect.py` expose un flux MJPEG annoté sur `http://<IP>:8081/stream`
+Le script `vision/detect.py` expose un flux MJPEG annoté sur `http://<IP>:8090/stream`
 (à mettre dans une balise `<img>`). Il faut le lancer sur le PC serveur (voir README).
 
 ## Idées d'amélioration (au choix)

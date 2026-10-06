@@ -5,7 +5,7 @@ param([string]$Subnet = "192.168.10.0/24")
 $rules = @(
   @{ Name = "SentinelX-MQTTS";  Port = 8883 },
   @{ Name = "SentinelX-API";    Port = 8000 },
-  @{ Name = "SentinelX-Camera"; Port = 8081 }
+  @{ Name = "SentinelX-Camera"; Port = 8090 }
 )
 foreach ($r in $rules) {
   Remove-NetFirewallRule -DisplayName $r.Name -ErrorAction SilentlyContinue
@@ -14,4 +14,4 @@ foreach ($r in $rules) {
 }
 # Pare-feu actif et bloquant par defaut sur tous les profils
 Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True -DefaultInboundAction Block
-Write-Host "Pare-feu configure : seuls $Subnet -> 8883/8000/8081 sont autorises."
+Write-Host "Pare-feu configure : seuls $Subnet -> 8883/8000/8090 sont autorises."

@@ -40,7 +40,8 @@ cd ../firmware && pio run -t upload && pio device monitor
 #    Python du Microsoft Store : pas d'acces webcam. Utiliser un Python standard (ex. uv).
 cd ../vision && uv venv .venv --python-preference only-managed --python 3.12
 uv pip install --python .venv/Scripts/python.exe -r requirements.txt
-API_KEY=<voir .env> .venv/Scripts/python.exe detect.py --camera 1   # essayer 0/1/2
+.venv/Scripts/python.exe detect.py --list                              # cameras disponibles
+API_KEY=<voir .env> .venv/Scripts/python.exe detect.py --camera 0    # flux sur :8090 (8081 = Jenkins)
 ```
 Dashboard : `http://<IP>:8000`, saisir l'API key (`API_KEY` dans `.env`).
 Raccourcis : `F` plein ecran, `M` son des alertes, `Echap` acquitter une alerte critique.

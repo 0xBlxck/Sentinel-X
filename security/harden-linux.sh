@@ -9,7 +9,7 @@ ufw default allow outgoing
 ufw allow from "$SUBNET" to any port 22 proto tcp
 ufw allow from "$SUBNET" to any port 8883 proto tcp
 ufw allow from "$SUBNET" to any port 8000 proto tcp
-ufw allow from "$SUBNET" to any port 8081 proto tcp
+ufw allow from "$SUBNET" to any port 8090 proto tcp
 ufw --force enable
 
 # SSH : cles uniquement, pas de root
