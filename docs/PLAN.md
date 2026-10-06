@@ -2,7 +2,7 @@
 
 Légende : `[x]` fait et **vérifié** · `[~]` fait mais **pas encore testé / partiel** · `[ ]` à faire
 
-Dernière mise à jour : 2026-10-06. Cocher au fur et à mesure (et committer ce fichier).
+Dernière mise à jour : 2026-10-06 (après vision YOLO). Cocher au fur et à mesure (et committer ce fichier).
 
 ## 0. Cadrage
 - [x] Choix d'architecture : option B (PC portable = serveur local)
@@ -54,8 +54,8 @@ Dernière mise à jour : 2026-10-06. Cocher au fur et à mesure (et committer ce
 - [x] Isolation Forest écrit et testé sur données simulées
 - [~] Isolation Forest sur les vraies mesures (apprentissage en cours, ~60 mesures minimum)
 - [ ] Scénario de démo anomalie (chauffer le DHT22, fumée près du MQ-2…) répété
-- [ ] Détection de personnes YOLOv8-tiny : **lancer `vision/detect.py`** (internet requis au 1er lancement)
-- [ ] Temps d'inférence < 100 ms par trame vérifié et noté
+- [~] Détection de personnes YOLOv8-tiny lancée sur la caméra USB (index 0) ; vraie personne à valider
+- [x] Temps d'inférence < 100 ms par trame vérifié (58-66 ms)
 - [ ] Alerte « intrusion » visible sur le dashboard
 - [ ] Documentation de l'IA pour le dossier (choix du modèle, features, limites)
 
