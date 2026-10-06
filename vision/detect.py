@@ -10,7 +10,8 @@ Pipeline en 3 etages pour un flux fluide et sans retard :
               dernieres detections dessinees ; etat JSON sur /status
 
 Alertes (POST /api/v1/alerts), toutes confirmees dans le temps (pas sur une seule image) :
-- visage inconnu   -> critical + buzzer et LED rouge sur l'ESP (POST /api/v1/command)
+- visage inconnu   -> critical + buzzer et LED rouge sur l'ESP (POST /api/v1/command),
+                      coupes automatiquement --alarm-hold s apres le depart de l'inconnu
 - visage autorise  -> info "acces autorise" (une fois par minute et par personne)
 - personne sans visage identifiable et aucun visage autorise vu recemment -> high
 """
@@ -39,7 +40,8 @@ p.add_argument("--confirm", type=float, default=1.0, help="secondes de presence 
 p.add_argument("--cooldown", type=float, default=10.0, help="secondes entre deux alertes")
 p.add_argument("--no-faces", action="store_true", help="desactive la reconnaissance faciale")
 p.add_argument("--face-threshold", type=float, default=0.363, help="similarite minimale pour reconnaitre")
-p.add_argument("--unknown-confirm", type=float, default=1.5, help="secondes de visage inconnu avant alarme")
+p.add_argument("--unknown-confirm", type=float, default=2.0, help="secondes de visage inconnu avant alarme")
+p.add_argument("--alarm-hold", type=float, default=10.0, help="secondes sans inconnu avant de couper le buzzer")
 p.add_argument("--no-buzzer", action="store_true", help="ne pas declencher le buzzer de l'ESP")
 args = p.parse_args()
 
@@ -186,7 +188,8 @@ def inference_loop() -> None:
     times: deque = deque(maxlen=10)
     last = {"intrusion": 0.0, "unknown": 0.0}
     last_access: dict[str, float] = {}
-    known_seen = 0.0
+    known_seen = last_stranger = 0.0
+    alarm_on = False
     while True:
         with S.lock:
             frame, fid = S.raw, S.raw_id
@@ -219,11 +222,20 @@ def inference_loop() -> None:
                     alert("access", "info", f"Acces autorise : {f['name']}",
                           {"name": f["name"], "similarity": f["score"]})
 
+        if strangers:
+            last_stranger = now
         if unknown.add(now, bool(strangers)) and strangers and now - last["unknown"] > args.cooldown:
             last["unknown"] = now
+            alarm_on = not args.no_buzzer
             alert("unknown_face", "critical", f"{len(strangers)} visage(s) inconnu(s)",
                   {"count": len(strangers), "similarity": max(f["score"] for f in strangers),
                    "inference_ms": round(ms, 1)})
+        # l'alarme declenchee par la vision s'arrete seule quand l'inconnu est parti
+        if alarm_on and now - last_stranger > args.alarm_hold:
+            alarm_on = False
+            log(f"[alarme] aucun inconnu depuis {args.alarm_hold:.0f} s : buzzer coupe")
+            threading.Thread(target=api_post, args=("/api/v1/command", {"buzzer": False, "led": "green"}),
+                             daemon=True).start()
 
         # silhouette sans visage exploitable : alerte seulement si personne d'autorise n'est la
         covered = book is not None and now - known_seen < KNOWN_GRACE
