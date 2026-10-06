@@ -46,9 +46,9 @@ Dernière mise à jour : 2026-10-06 (après refonte du dashboard). Cocher au fur
 - [x] MQTT sur TLS avec vérification du certificat (pas de `setInsecure`)
 - [ ] PIR HC-SR501 : affiche `mvt=1` en permanence → câblage ou temps de chauffe à vérifier
 - [ ] MQ-2 : lit 0 → vérifier câblage, chauffe, et **diviseur de tension sur A0**
-- [ ] Buzzer actif branché et testé
-- [ ] LED bicolore (résistances) branchée et testée
-- [ ] Commande dashboard → ESP (buzzer / LED) testée de bout en bout
+- [x] Buzzer actif branché et testé (commande dashboard → pont USB → ESP, accusé `[cmd]`)
+- [x] LED bicolore branchée et testée (rouge / verte / off)
+- [x] Commande dashboard → ESP (buzzer / LED) testée de bout en bout en pont USB ; [ ] à refaire en Wi-Fi
 - [ ] Alimentation de production (bloc 7,5 V sur VIN, **jamais avec l'USB**)
 
 ## 5. Intelligence artificielle (IA)
