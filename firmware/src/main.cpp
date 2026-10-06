@@ -20,14 +20,14 @@
 #define PIN_DHT D5       // GPIO14
 #define PIN_PIR D6       // GPIO12
 #define PIN_BUZZER D7    // GPIO13
-// Module buzzer actif a l'etat bas (sonne quand la broche est a 0 V) : c'est le cas du
-// module du boitier. Pour un buzzer nu branche D7 -> GND, compiler avec -DBUZZER_ACTIVE_HIGH.
-#ifdef BUZZER_ACTIVE_HIGH
-#define BUZZER_ON HIGH
-#define BUZZER_OFF LOW
-#else
+// Buzzer actif 2 pattes : + sur D7, - sur GND (sonne quand D7 est a 3,3 V).
+// Pour un module 3 broches actif a l'etat bas (sonne a 0 V), compiler avec -DBUZZER_ACTIVE_LOW.
+#ifdef BUZZER_ACTIVE_LOW
 #define BUZZER_ON LOW
 #define BUZZER_OFF HIGH
+#else
+#define BUZZER_ON HIGH
+#define BUZZER_OFF LOW
 #endif
 #define PIN_LED_RED D8   // GPIO15 (anode via resistance, cathode au GND)
 #define PIN_LED_GREEN D0 // GPIO16
