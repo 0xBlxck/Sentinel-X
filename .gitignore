@@ -9,3 +9,5 @@ __pycache__/
 .venv/
 *.pt
 vision/vision.log
+vision/models/
+vision/faces/
