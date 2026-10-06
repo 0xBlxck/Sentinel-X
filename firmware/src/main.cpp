@@ -339,7 +339,19 @@ void setup() {
   pinMode(PIN_LED_GREEN, OUTPUT);
   setLed("green");
   dht.begin();
-  oledOk = oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // Scan I2C : oled.begin() reussit meme sans ecran, on verifie qu'un peripherique repond
+  Wire.begin();
+  uint8_t oledAddr = 0;
+  Serial.print("\n[i2c] peripheriques :");
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf(" 0x%02X", a);
+      if (a == 0x3C || a == 0x3D) oledAddr = a;
+    }
+  }
+  Serial.println(oledAddr ? "" : " aucun ecran (verifier SDA=D2, SCL=D1, VCC=3V3, GND)");
+  oledOk = oledAddr && oled.begin(SSD1306_SWITCHCAPVCC, oledAddr);
   Serial.printf("\n[boot] OLED %s, redemarrage : %s\n", oledOk ? "OK" : "introuvable (0x3C)",
                 ESP.getResetReason().c_str());
   splash();
