@@ -48,7 +48,7 @@ Dernière mise à jour : 2026-10-06 (après refonte du dashboard). Cocher au fur
 - [ ] MQ-2 : lit 0 → vérifier câblage, chauffe, et **diviseur de tension sur A0**
 - [x] Buzzer actif branché et testé (commande dashboard → pont USB → ESP, accusé `[cmd]`)
 - [x] LED bicolore branchée et testée (rouge / verte / off)
-- [x] Commande dashboard → ESP (buzzer / LED) testée de bout en bout en pont USB ; [ ] à refaire en Wi-Fi
+- [x] Commande dashboard → ESP (buzzer / LED) testée de bout en bout en pont USB puis en Wi-Fi (hotspot S25, 2,4 GHz) ; alarme visage inconnu → buzzer vérifiée
 - [ ] Alimentation de production (bloc 7,5 V sur VIN, **jamais avec l'USB**)
 
 ## 5. Intelligence artificielle (IA)
