@@ -20,6 +20,15 @@
 #define PIN_DHT D5       // GPIO14
 #define PIN_PIR D6       // GPIO12
 #define PIN_BUZZER D7    // GPIO13
+// Module buzzer actif a l'etat bas (sonne quand la broche est a 0 V) : c'est le cas du
+// module du boitier. Pour un buzzer nu branche D7 -> GND, compiler avec -DBUZZER_ACTIVE_HIGH.
+#ifdef BUZZER_ACTIVE_HIGH
+#define BUZZER_ON HIGH
+#define BUZZER_OFF LOW
+#else
+#define BUZZER_ON LOW
+#define BUZZER_OFF HIGH
+#endif
 #define PIN_LED_RED D8   // GPIO15 (anode via resistance, cathode au GND)
 #define PIN_LED_GREEN D0 // GPIO16
 // MQ-2 sur A0 ; OLED I2C : SDA=D2 (GPIO4), SCL=D1 (GPIO5)
@@ -43,6 +52,7 @@ bool wifiStarted = false;
 bool ntpStarted = false;
 float lastT = NAN, lastH = NAN;
 
+bool buzzerOn = false;
 String ledState = "off";  // GPIO16 (D0) se relit mal : on memorise l'etat demande
 
 void setLed(const String &color) {
@@ -81,9 +91,12 @@ void drawStatus(float t, float h, int gas, bool motion) {
 void onCommand(char *topic, byte *payload, unsigned int len) {
   JsonDocument doc;
   if (deserializeJson(doc, payload, len)) return;
-  if (doc["buzzer"].is<bool>()) digitalWrite(PIN_BUZZER, doc["buzzer"].as<bool>());
+  if (doc["buzzer"].is<bool>()) {
+    buzzerOn = doc["buzzer"].as<bool>();
+    digitalWrite(PIN_BUZZER, buzzerOn ? BUZZER_ON : BUZZER_OFF);
+  }
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
-  Serial.printf("[cmd] buzzer=%d led=%s\n", digitalRead(PIN_BUZZER),
+  Serial.printf("[cmd] buzzer=%d led=%s\n", buzzerOn,
                 ledState.c_str());
 }
 
@@ -162,9 +175,11 @@ void networkStep() {
 }
 
 void setup() {
+  // En tout premier : buzzer a l'arret (niveau ecrit avant de passer la broche en sortie)
+  digitalWrite(PIN_BUZZER, BUZZER_OFF);
+  pinMode(PIN_BUZZER, OUTPUT);
   Serial.begin(115200);
   pinMode(PIN_PIR, INPUT);
-  pinMode(PIN_BUZZER, OUTPUT);
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
   setLed("green");
