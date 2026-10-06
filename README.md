@@ -80,3 +80,10 @@ uv run --with paho-mqtt python tools/simulate.py --host <IP_DU_CERTIFICAT> --sce
 - **Maintenance predictive** : Isolation Forest (scikit-learn) sur temp, humidite, gaz et leurs pentes ;
   apprentissage glissant apres 60 mesures, aucun seuil statique.
 - **Vision** : YOLOv8n, classe `person`, images 640x480, temps d'inference affiche sur le flux.
+- **Controle d'acces** : reconnaissance faciale OpenCV (YuNet pour detecter, SFace pour reconnaitre,
+  similarite cosinus >= 0.363). Visages autorises ajoutes depuis le dashboard (panneau *Controle d'acces*)
+  ou en deposant des photos dans `vision/faces/<nom>/`. Un visage **inconnu** confirme 1,5 s declenche
+  une alerte `critical` (sirene sur le dashboard) et le **buzzer + LED rouge** de l'ESP (`--no-buzzer` pour
+  desactiver). Tant qu'aucun visage n'est enregistre, seule l'alerte de presence YOLO est active.
+  Donnees biometriques : stockees uniquement en local, ignorees par Git, enregistrement avec consentement
+  de la personne (RGPD art. 9), suppression depuis le dashboard.

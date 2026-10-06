@@ -41,6 +41,11 @@ Sources d'alertes : `ml` (anomalie Isolation Forest), `vision` (intrusion YOLO),
 ## Flux caméra
 Le script `vision/detect.py` expose un flux MJPEG annoté sur `http://<IP>:8090/stream`
 (à mettre dans une balise `<img>`). Il faut le lancer sur le PC serveur (voir README).
+État JSON (sans clé) : `GET :8090/status` → `{camera, cam_fps, infer_ms, persons, faces:[{name, score, small}]}`.
+
+Visages autorisés (en-tête `X-API-Key`) : `GET :8090/faces`, `POST :8090/faces {name}` (capture ~3 s),
+`DELETE :8090/faces/<nom>`. Nouveaux types d'alerte vision : `unknown_face` (critical), `access` (info).
+Le WebSocket diffuse aussi `{"kind":"command", buzzer?, led?}` à chaque commande d'actionneur.
 
 ## Idées d'amélioration (au choix)
 - Écran d'état du boîtier (Wi-Fi, MQTT, modèle IA prêt ou en apprentissage)
