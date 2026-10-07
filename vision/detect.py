@@ -14,6 +14,8 @@ Alertes (POST /api/v1/alerts), toutes confirmees dans le temps (pas sur une seul
                       coupes automatiquement --alarm-hold s apres le depart de l'inconnu
 - visage autorise  -> info "acces autorise" (une fois par minute et par personne)
 - personne sans visage identifiable et aucun visage autorise vu recemment -> high
+Les cas "visage inconnu" et "sans visage" envoient aussi {"stranger": true} : l'OLED de l'ESP
+affiche "personne non reconnue" si son PIR detecte un mouvement dans les 15 s qui suivent.
 """
 import argparse
 import hmac
@@ -164,8 +166,12 @@ def alert(type_: str, severity: str, message: str, data: dict) -> None:
         if api_post("/api/v1/alerts", {"source": "vision", "type": type_, "severity": severity,
                                        "message": message, "data": data}):
             log(f"[alerte] {severity} {type_} : {message}")
-        if type_ == "unknown_face" and not args.no_buzzer:
-            api_post("/api/v1/command", {"buzzer": True, "led": "red"})
+        if type_ in ("unknown_face", "intrusion"):
+            # l'ESP affiche l'ecran "non reconnu" si son PIR voit aussi bouger (meme avec --no-buzzer)
+            cmd = {"stranger": True}
+            if type_ == "unknown_face" and not args.no_buzzer:
+                cmd.update(buzzer=True, led="red")
+            api_post("/api/v1/command", cmd)
         elif type_ == "access" and not args.no_buzzer:
             api_post("/api/v1/command", {"chime": "access", "who": data.get("name", "")[:16]})
     threading.Thread(target=send, daemon=True).start()
@@ -236,7 +242,7 @@ def inference_loop() -> None:
         if alarm_on and now - last_stranger > args.alarm_hold:
             alarm_on = False
             log(f"[alarme] aucun inconnu depuis {args.alarm_hold:.0f} s : buzzer coupe")
-            threading.Thread(target=api_post, args=("/api/v1/command", {"buzzer": False, "led": "green"}),
+            threading.Thread(target=api_post, args=("/api/v1/command", {"buzzer": False, "led": "green", "stranger": False}),
                              daemon=True).start()
 
         # silhouette sans visage exploitable : alerte seulement si personne d'autorise n'est la

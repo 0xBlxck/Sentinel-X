@@ -31,7 +31,9 @@
 #endif
 #define PIN_LED_RED D8   // GPIO15 (anode via resistance, cathode au GND)
 #define PIN_LED_GREEN D0 // GPIO16
-// MQ-2 sur A0 ; OLED I2C : SDA=D2 (GPIO4), SCL=D1 (GPIO5)
+// MQ-2 sur A0 (via diviseur) ; OLED I2C sur les broches I2C par defaut
+#define PIN_SDA D2  // GPIO4
+#define PIN_SCL D1  // GPIO5
 
 #define TOPIC_TELEMETRY "sentinel/telemetry"
 #define TOPIC_CMD "sentinel/cmd"
@@ -102,12 +104,14 @@ void setLed(const String &color) {
 }
 
 // ---------- Ecran OLED 128x64 ----------
-// 3 ecrans : normal (mesures), alarme (clignotant tant que le buzzer sonne),
+// 4 ecrans : normal (mesures), alarme (clignotant tant que le buzzer sonne),
+// inconnu (le PIR voit bouger et la camera n'a pas reconnu la personne),
 // accueil (prenom de la personne reconnue par la camera, quelques secondes).
+#define STRANGER_HOLD_MS 15000  // validite d'un signalement "non reconnu" de la camera
 int curGas = 0;
 bool curMotion = false;
 String welcomeName;
-unsigned long welcomeUntil = 0, lastOled = 0;
+unsigned long welcomeUntil = 0, strangerUntil = 0, lastOled = 0;
 
 void centerText(const String &s, int y, int size) {
   oled.setTextSize(size);
@@ -188,6 +192,14 @@ void drawAlarm() {
   centerText("visage inconnu", 46, 1);
 }
 
+void drawStranger() {
+  drawHeader();
+  centerText("MOUVEMENT DETECTE", 16, 1);
+  centerText("INCONNU", 29, 2);
+  oled.drawFastHLine(10, 48, 108, SSD1306_WHITE);
+  centerText("visage non reconnu", 53, 1);
+}
+
 void drawWelcome() {
   drawHeader();
   centerText("ACCES AUTORISE", 18, 1);
@@ -209,7 +221,9 @@ void oledTick() {
     oled.invertDisplay((millis() / 400) % 2);  // clignotement
   } else {
     oled.invertDisplay(false);
-    if (millis() < welcomeUntil) drawWelcome();
+    // PIR lu en direct : l'ecran reagit sans attendre le cycle de mesure de 2 s
+    if (millis() < strangerUntil && digitalRead(PIN_PIR)) drawStranger();
+    else if (millis() < welcomeUntil) drawWelcome();
     else drawNormal();
   }
   oled.display();
@@ -251,6 +265,8 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
     else if (c == "beep") play(TUNE_BEEP, sizeof(TUNE_BEEP) / 2, false);
   }
   if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
+  // camera : personne non reconnue (true) ou partie (false)
+  if (doc["stranger"].is<bool>()) strangerUntil = doc["stranger"].as<bool>() ? millis() + STRANGER_HOLD_MS : 0;
   Serial.printf("[cmd] buzzer=%d led=%s\n", buzzerOn,
                 ledState.c_str());
 }
@@ -337,6 +353,10 @@ void setup() {
   pinMode(PIN_PIR, INPUT);
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_GREEN, OUTPUT);
+  // Test visuel de la LED : rouge 1 s puis vert (reste allume)
+  Serial.println("\n[led] test : rouge (D8) puis vert (D0)");
+  setLed("red");
+  delay(1000);
   setLed("green");
   dht.begin();
   // Scan I2C : oled.begin() reussit meme sans ecran, on verifie qu'un peripherique repond
@@ -344,7 +364,7 @@ void setup() {
   // de rappel integrees). Sans pull-up interne, une ligne a 0 = fil absent ou module non alimente.
   {
     int lv[2][2];
-    const uint8_t lines[2] = {D2, D1};
+    const uint8_t lines[2] = {PIN_SDA, PIN_SCL};
     for (int i = 0; i < 2; i++) {
       pinMode(lines[i], INPUT);
       delay(5);
@@ -361,7 +381,7 @@ void setup() {
   }
   // Les deux sens sont essayes : SDA/SCL croises est l'erreur de cablage la plus frequente.
   uint8_t oledAddr = 0;
-  const uint8_t pins[2][2] = {{D2, D1}, {D1, D2}};  // {SDA, SCL}
+  const uint8_t pins[2][2] = {{PIN_SDA, PIN_SCL}, {PIN_SCL, PIN_SDA}};  // {SDA, SCL}
   for (auto &p : pins) {
     Wire.begin(p[0], p[1]);
     Serial.printf("\n[i2c] SDA=%s SCL=%s :", p[0] == D2 ? "D2" : "D1", p[1] == D1 ? "D1" : "D2");
@@ -375,7 +395,7 @@ void setup() {
     if (oledAddr) break;
   }
   Serial.println(oledAddr ? "" : " aucun ecran (verifier VCC=3V3, GND, SDA=D2, SCL=D1)");
-  oledOk = oledAddr && oled.begin(SSD1306_SWITCHCAPVCC, oledAddr);
+  oledOk = oledAddr && oled.begin(SSD1306_SWITCHCAPVCC, oledAddr, true, false);  // false : garder les broches trouvees par le scan
   Serial.printf("\n[boot] OLED %s, redemarrage : %s\n", oledOk ? "OK" : "introuvable (0x3C)",
                 ESP.getResetReason().c_str());
   splash();

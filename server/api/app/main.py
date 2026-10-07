@@ -125,6 +125,7 @@ class CommandIn(BaseModel):
     led: Literal["green", "red", "off"] | None = None
     chime: Literal["access", "beep"] | None = None  # sonnerie ponctuelle du buzzer
     who: str | None = Field(default=None, max_length=16)  # prenom affiche sur l'OLED (acces)
+    stranger: bool | None = None  # personne non reconnue par la camera (ecran OLED si le PIR voit bouger)
 
 
 @app.post("/api/v1/alerts", status_code=201, dependencies=[Depends(require_key)])

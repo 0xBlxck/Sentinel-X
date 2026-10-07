@@ -56,12 +56,13 @@ uv run --with paho-mqtt python tools/simulate.py --host <IP_DU_CERTIFICAT> --sce
 ## Brochage (NodeMCU)
 | Composant | Broche |
 |---|---|
-| DHT22 | D5 |
-| PIR HC-SR501 | D6 |
+| DHT22 | D5 (+ sur 3,3 V) |
+| PIR HC-SR501 | D6 (VCC sur 5 V = VU) |
 | Buzzer actif | D7 |
 | LED rouge / verte | D8 / D0 (cathode commune au GND, resistances) |
 | OLED SDA / SCL | D2 / D1 |
 | MQ-2 AO | A0 (**diviseur de tension obligatoire : AO sort jusqu'a 5 V**) |
+| Alimentation | 3V -> rail 3,3 V, VU -> rail 5 V, G -> rails GND (un fil par broche de composant) |
 
 ## API
 - `POST /api/v1/alerts` (header `X-API-Key`) : `{source,type,severity,message,data}`
