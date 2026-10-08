@@ -58,7 +58,7 @@ export default function Journal() {
           on={awake} onPress={() => setAwake(!awake)}
           label="Écran toujours allumé" sub="Pour garder le téléphone en poste de surveillance"
         />
-        <BigButton label="Déconnexion" sub="efface la clé de l'appareil" onPress={() => ss.logout()} style={{ marginTop: 12 }} />
+        <BigButton label="Déconnexion" sub="efface la clé ou la session de l'appareil" onPress={() => ss.logout()} style={{ marginTop: 12 }} />
         <View style={st.foot}>
           <Icon name="shield" size={14} color={C.dim} viewBox={32} />
           <Text style={st.footText}>API :8000 · WebSocket temps réel · vision :8090</Text>

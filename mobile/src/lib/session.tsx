@@ -112,13 +112,23 @@ function useSessionState() {
       headers: { 'Content-Type': 'application/json', 'X-API-Key': keyRef.current, ...(init.headers || {}) },
     }, path.startsWith('/faces') && init.method === 'POST' ? 15000 : 6000);
     const body = await r.json().catch(() => ({}));
-    if (r.status === 401 && base === api) { logout('Clé refusée par le serveur.'); throw new Error('401'); }
+    if (r.status === 401 && base === api) { logout('Session expirée ou clé refusée.'); throw new Error('401'); }
     if (!r.ok) throw new Error((body as { error?: string }).error || String(r.status));
     return body as T;
   }, [api]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- session ----------
   const [loginError, setLoginError] = useState('');
+
+  /** Cle d'API ou jeton de session : memorise (chiffre) et ouvre la session. */
+  const accept = useCallback(async (h: string, k: string) => {
+    keyRef.current = k;
+    setHost(h);
+    setKey(k);
+    await AsyncStorage.setItem(K.host, h).catch(() => {});
+    await SecureStore.setItemAsync(K.key, k).catch(() => {});
+    setAuthed(true);
+  }, []);
 
   const login = useCallback(async (rawHost: string, k: string): Promise<boolean> => {
     const h = cleanHost(rawHost);
@@ -132,14 +142,36 @@ function useSessionState() {
       setLoginError(`Serveur injoignable (${(e as Error).name === 'AbortError' ? 'délai dépassé' : (e as Error).message}). Même Wi-Fi que le PC ?`);
       return false;
     }
-    keyRef.current = k.trim();
-    setHost(h);
-    setKey(k.trim());
-    await AsyncStorage.setItem(K.host, h).catch(() => {});
-    await SecureStore.setItemAsync(K.key, k.trim()).catch(() => {});
-    setAuthed(true);
+    await accept(h, k.trim());
+    log('ws', 'Opérateur authentifié par clé d’API');
     return true;
-  }, []);
+  }, [accept, log]);
+
+  /** Reconnaissance faciale par la camera du PC serveur : vision/detect.py renvoie un jeton
+   *  de session signe (12 h), utilise ensuite exactement comme la cle d'API. */
+  const loginFace = useCallback(async (rawHost: string): Promise<boolean> => {
+    const h = cleanHost(rawHost);
+    setLoginError('');
+    if (!h) { setLoginError('Adresse du PC serveur requise.'); return false; }
+    let token = '', name = '';
+    try {
+      const r = await timedFetch(`http://${h}:${CAM_PORT}/auth/face`, { method: 'POST' }, 20000);
+      const body: { token?: string; name?: string; error?: string } = await r.json().catch(() => ({}));
+      if (!r.ok || !body.token) {
+        const err = body.error || `refus (${r.status})`;
+        setLoginError(err[0].toUpperCase() + err.slice(1) + '.');
+        return false;
+      }
+      token = body.token;
+      name = body.name || '';
+    } catch {
+      setLoginError('Détecteur vision injoignable : lancer vision/detect.py ou utiliser la clé d’API.');
+      return false;
+    }
+    await accept(h, token);
+    log('ws', `Opérateur ${name} authentifié par reconnaissance faciale`);
+    return true;
+  }, [accept, log]);
 
   const logout = useCallback((err?: string) => {
     keyRef.current = '';
@@ -457,7 +489,7 @@ function useSessionState() {
   }, [offlineKind, log]);
 
   return {
-    ready, host, authed, login, logout, loginError, api, camBase,
+    ready, host, authed, login, loginFace, logout, loginError, api, camBase,
     history, alerts, acked, ack, device, syncState, syncAt: sync.at, live, modelReady, mqtt, wsOpen,
     cam, faces, enroll, deleteFace, logs, toasts, crit, closeCritical, muted, setMuted,
     now, threat, espAge, offline, command, busy, cmdNote,

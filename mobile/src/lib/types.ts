@@ -75,6 +75,8 @@ export const LABELS = {
     unknown_face: 'Visage inconnu',
     access: 'Accès autorisé',
     gas: 'Alarme gaz / fumée',
+    login: 'Connexion opérateur',
+    spoof: 'Photo / écran suspecté',
   } as Record<string, string>,
   source: { vision: 'Vision', ml: 'IA', esp8266: 'Boîtier' } as Record<string, string>,
   sev: { info: 'Info', medium: 'Moyenne', high: 'Haute', critical: 'Critique' } as Record<string, string>,

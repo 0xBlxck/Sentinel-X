@@ -1,6 +1,6 @@
 // Habillage commun : en-tete (marque, liaisons, horloge), bandeau hors ligne, toasts, alerte critique.
 import type { ReactNode } from 'react';
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dateLabel, fmt, hms } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -43,6 +43,15 @@ export function Header() {
         <Pressable style={[st.iconBtn, ss.muted && st.iconBtnWarn]} onPress={() => ss.setMuted(!ss.muted)} hitSlop={6}
           accessibilityLabel={ss.muted ? 'Réactiver les vibrations' : 'Couper les vibrations'}>
           <Icon name={ss.muted ? 'muteOff' : 'muteOn'} size={18} color={ss.muted ? C.warn : C.fg} />
+        </Pressable>
+        <Pressable
+          style={st.iconBtn} hitSlop={6} accessibilityLabel="Déconnexion"
+          onPress={() => Alert.alert('Déconnexion', 'Fermer la session sur ce téléphone ?', [
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Déconnexion', style: 'destructive', onPress: () => ss.logout() },
+          ])}
+        >
+          <Icon name="logout" size={18} color={C.fg} />
         </Pressable>
       </View>
       <View style={st.links}>

@@ -120,7 +120,7 @@ function Access() {
       </View>
       <Text style={[ui.note, note.kind === 'ok' && { color: C.ok }, note.kind === 'err' && { color: C.bad }]}>{note.text}</Text>
       <View style={{ marginTop: 10 }}>
-        {!ss.faces.length ? <Text style={ui.empty}>AUCUN VISAGE AUTORISÉ · ALARME INACTIVE</Text>
+        {!ss.faces.length ? <Text style={ui.empty}>AUCUN VISAGE AUTORISÉ · TOUTE PRÉSENCE DÉCLENCHE L’ALARME</Text>
           : ss.faces.map((f) => (
             <View key={f.name} style={st.faceRow}>
               <View style={st.av}><Text style={st.avText}>{f.name.slice(0, 2).toUpperCase()}</Text></View>
