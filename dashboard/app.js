@@ -7,6 +7,9 @@ const WINDOW_MS = 5 * 60 * 1000;   // fenetre des graphiques
 const RECENT_MS = 60 * 1000;       // une alerte compte dans le niveau de menace pendant 1 min
 const HOUR_MS = 60 * 60 * 1000;
 const MIN_TRAIN = 60;              // cf. server/api/app/ml.py
+const GAS_ALARM = 300;             // seuil de l'alarme gaz locale, cf. GAS_ALARM_ON dans firmware/src/main.cpp
+const ESP_SILENT_MS = 30000;       // au-dela, le boitier est considere hors ligne
+const CONFIRM_MS = 5000;           // delai de confirmation d'une commande par le boitier
 const css = getComputedStyle(document.documentElement);
 const C = Object.fromEntries(['acc', 'ok', 'warn', 'bad', 'temp', 'hum', 'gas', 'ai', 'mut', 'dim', 'fg']
   .map((k) => [k, css.getPropertyValue('--' + k).trim()]));
@@ -14,7 +17,7 @@ const MONO = css.getPropertyValue('--mono');
 
 const LABELS = {
   type: { intrusion: 'Intrusion détectée', anomaly: 'Anomalie capteurs', motion: 'Mouvement détecté',
-    unknown_face: 'Visage inconnu', access: 'Accès autorisé' },
+    unknown_face: 'Visage inconnu', access: 'Accès autorisé', gas: 'Alarme gaz / fumée' },
   source: { vision: 'Vision', ml: 'IA', esp8266: 'Boîtier' },
   sev: { info: 'Info', medium: 'Moyenne', high: 'Haute', critical: 'Critique' },
 };
@@ -37,7 +40,9 @@ const state = {
   camOn: false,
   muted: false,
   filter: { source: '', sev: '' },
-  device: { buzzer: false, led: 'off' },
+  device: { buzzer: false, led: 'off', gas_alarm: false, stranger: false },
+  sync: { pending: false, at: 0 },  // confirmation des commandes par le boitier (sentinel/state)
+  acked: new Set(),     // ids des alertes prises en compte par l'operateur (memorises dans ce navigateur)
 };
 
 // ---------- utilitaires ----------
@@ -101,6 +106,7 @@ class LineChart {
       const vals = [];
       o.series.filter((s) => (s.axis || 'l') === ax).forEach((s) => pts.forEach((p) => p[s.key] != null && vals.push(p[s.key])));
       if (!vals.length) { axes[ax] = { lo: 0, hi: 1, empty: true }; continue; }
+      if (ax === 'l' && o.limit && !mini) vals.push(o.limit.v);  // le seuil reste toujours visible
       let lo = Math.min(...vals), hi = Math.max(...vals);
       if (o.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
       const span = hi - lo || Math.max(Math.abs(hi) * 0.1, 1);
@@ -123,6 +129,21 @@ class LineChart {
       ctx.font = `10px ${MONO}`;
       ctx.textAlign = 'right';
       ctx.fillText('SEUIL', pad.l + iw - 4, y0 - 4);
+    }
+
+    if (o.limit && !mini && !axes.l.empty) {
+      const y = Y(o.limit.v);
+      ctx.fillStyle = alpha(C.bad, 0.06);
+      ctx.fillRect(pad.l, pad.t, iw, y - pad.t);
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = alpha(C.bad, 0.75);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + iw, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = alpha(C.bad, 0.9);
+      ctx.font = `10px ${MONO}`;
+      ctx.textAlign = 'right';
+      ctx.fillText(o.limit.label, pad.l + iw - 4, y - 4);
     }
 
     // series : segments continus (coupure si trou > 15 s)
@@ -263,7 +284,8 @@ const charts = [
     { key: 'temp', label: 'Temp', unit: ' °C', color: C.temp },
     { key: 'hum', label: 'Hum', unit: ' %', color: C.hum, axis: 'r', fill: false },
   ] }),
-  new LineChart($('c-gas'), { series: [{ key: 'gas', label: 'Gaz', color: C.gas, digits: 0 }] }),
+  new LineChart($('c-gas'), { limit: { v: GAS_ALARM, label: `ALARME BOÎTIER ${GAS_ALARM}` },
+    series: [{ key: 'gas', label: 'Gaz', color: C.gas, digits: 0 }] }),
   new LineChart($('c-ai'), { zero: true, markers: true, series: [{ key: 'score', label: 'Score', color: C.ai, digits: 3 }] }),
   new LineChart($('s-temp'), { mini: true, markers: true, series: [{ key: 'temp', color: C.temp }] }),
   new LineChart($('s-hum'), { mini: true, series: [{ key: 'hum', color: C.hum }] }),
@@ -347,6 +369,9 @@ function onTelemetry(m) {
   state.anomaly = p.anomaly;
   if (p.motion) state.lastMotion = p.t;
   state.motion = p.motion;
+  if (state.gasWarmup && !m.warmup) log('mqtt', 'MQ-2 préchauffé : mesures de gaz prises en compte par l’IA');
+  state.gasWarmup = !!m.warmup;
+  $('gas-tag').textContent = m.warmup ? 'MQ-2 · préchauffage' : 'MQ-2';
   log('mqtt', `T=${fmt(p.temp)}°C H=${fmt(p.hum)}% G=${p.gas} M=${+p.motion}${p.score != null ? ` S=${fmt(p.score, 3)}` : ''}`);
   renderTiles(p);
   renderAI(p);
@@ -412,26 +437,45 @@ function renderAI(p) {
 // ---------- alertes ----------
 function alertTitle(a) { return LABELS.type[a.type] || a.type; }
 
+try { JSON.parse(load('localStorage', 'sx-acked') || '[]').forEach((id) => state.acked.add(id)); } catch { /* illisible */ }
+function ack(ids) {
+  let n = 0;
+  for (const id of ids) if (id != null && !state.acked.has(id)) { state.acked.add(id); n++; }
+  if (!n) return 0;
+  store('localStorage', 'sx-acked', JSON.stringify([...state.acked].slice(-500)));
+  renderAlerts();
+  renderThreat();
+  return n;
+}
+
 function renderAlerts(newId) {
   const list = $('alerts');
   const f = state.filter;
   const items = state.alerts.filter((a) => (!f.source || a.source === f.source) && (!f.sev || a.severity === f.sev)).slice(0, 200);
   list.replaceChildren(...items.map((a) => {
     const li = document.createElement('li');
-    li.className = `sev-${a.severity}${a.id === newId ? ' new' : ''}`;
+    const acked = state.acked.has(a.id);
+    li.className = `sev-${a.severity}${a.id === newId ? ' new' : ''}${acked ? ' acked' : ''}`;
     const d = new Date(a.ts);
-    li.innerHTML = '<time></time><b></b><p></p><span class="tag"><span class="pill"></span><span class="src"></span></span>';
+    li.innerHTML = '<time></time><b></b><p></p><span class="tag"><span class="pill"></span><span class="src"></span></span>'
+      + '<button type="button" class="ack"></button>';
     li.children[0].textContent = hms(d);
     li.children[0].title = d.toLocaleString('fr-FR');
     li.children[1].textContent = alertTitle(a);
     li.children[2].textContent = a.message || '';
     li.querySelector('.pill').textContent = LABELS.sev[a.severity] || a.severity;
     li.querySelector('.src').textContent = LABELS.source[a.source] || a.source;
+    const btn = li.querySelector('.ack');
+    btn.textContent = acked ? 'Pris en compte' : 'Prendre en compte';
+    btn.disabled = acked;
+    btn.onclick = () => { ack([a.id]); log('alert', `Alerte prise en compte : ${alertTitle(a)} (${hms(d)})`); };
     return li;
   }));
   if (!items.length) list.innerHTML = '<li class="empty">AUCUNE ALERTE</li>';
   const hour = state.alerts.filter((a) => Date.now() - new Date(a.ts) < HOUR_MS);
-  $('alerts-count').textContent = `${state.alerts.length} chargées`;
+  const open = state.alerts.filter((a) => !state.acked.has(a.id) && Date.now() - new Date(a.ts) < RECENT_MS).length;
+  $('alerts-count').textContent = `${state.alerts.length} chargées${open ? ` · ${open} à traiter` : ''}`;
+  $('ack-all').disabled = !state.alerts.some((a) => !state.acked.has(a.id));
   $('cnt-alerts').textContent = hour.length;
   $('cnt-intrusion').textContent = hour.filter((a) => a.type === 'intrusion').length;
   $('cnt-anomaly').textContent = hour.filter((a) => a.source === 'ml').length;
@@ -460,11 +504,19 @@ function onDetection(a) {
   detectTimer = setTimeout(() => $('feed').classList.remove('detect'), 5000);
 }
 
+$('ack-all').onclick = () => {
+  const n = ack(state.alerts.map((a) => a.id));
+  if (n) log('alert', `${n} alerte(s) prise(s) en compte par l'opérateur`);
+};
+
 // ---------- alerte critique plein ecran ----------
-let critCount = 0, sirenTimer = 0;
+let critCount = 0, sirenTimer = 0, critIds = [];
 function openCritical(a) {
   const box = $('critical');
   critCount = box.hidden ? 1 : critCount + 1;
+  critIds = box.hidden ? [a.id] : [...critIds, a.id];
+  // alarme gaz : le boitier sonne deja de lui-meme, declencher l'alarme intrusion n'a pas de sens
+  $('crit-alarm').hidden = a.type === 'gas';
   $('crit-source').textContent = `ALERTE ${(LABELS.sev[a.severity] || '').toUpperCase()} · ${(LABELS.source[a.source] || a.source).toUpperCase()}`;
   $('crit-title').textContent = alertTitle(a).toUpperCase();
   $('crit-msg').textContent = `${a.message || ''} — ${hms(new Date(a.ts))}`;
@@ -486,6 +538,7 @@ function closeCritical() {
   if ($('critical').hidden) return;
   $('critical').hidden = true;
   clearInterval(sirenTimer);
+  ack(critIds);
   log('alert', `Alerte acquittée par l'opérateur${critCount > 1 ? ` (${critCount} événements)` : ''}`);
 }
 $('crit-ack').onclick = closeCritical;
@@ -513,22 +566,27 @@ const ARC = 2 * Math.PI * 84;
 
 function renderThreat() {
   const now = Date.now();
-  const recent = state.alerts.filter((a) => now - new Date(a.ts) < RECENT_MS);
+  // une alerte prise en compte par l'operateur ne fait plus monter le niveau
+  const recent = state.alerts.filter((a) => now - new Date(a.ts) < RECENT_MS && !state.acked.has(a.id));
   const has = (fn) => recent.some(fn);
   const intrusion = has((a) => a.type === 'intrusion');
   const anomaly = state.anomaly || has((a) => a.source === 'ml');
-  const espDown = state.lastTelemetry && now - state.lastTelemetry > 30000;
+  const espDown = state.lastTelemetry && now - state.lastTelemetry > ESP_SILENT_MS;
+  // l'alarme gaz est un etat physique du boitier : elle compte tant qu'elle dure, acquittee ou non
+  const gas = state.device.gas_alarm || has((a) => a.type === 'gas');
   let lvl = 0, desc = LEVELS[0][1];
-  if (has((a) => a.severity === 'critical') || (intrusion && anomaly)) {
-    lvl = 4; desc = intrusion && anomaly ? 'Intrusion et anomalie simultanées' : 'Alerte critique en cours';
+  if (gas || has((a) => a.severity === 'critical') || (intrusion && anomaly)) {
+    lvl = 4;
+    desc = gas ? 'Alarme gaz / fumée sur le boîtier' : intrusion && anomaly ? 'Intrusion et anomalie simultanées'
+      : has((a) => a.type === 'unknown_face') ? 'Visage inconnu sur site' : 'Alerte critique en cours';
   } else if (has((a) => a.severity === 'high')) {
     lvl = 3; desc = intrusion ? 'Présence humaine détectée par la caméra' : 'Anomalie capteurs confirmée';
-  } else if (anomaly || has((a) => a.severity === 'medium')) {
-    lvl = 2; desc = anomaly ? 'Mesures hors du régime appris' : 'Mouvement détecté sur site';
-  } else if (state.motion || espDown || !state.wsOpen || state.mqtt === false) {
+  } else if (anomaly || espDown || has((a) => a.severity === 'medium')) {
+    lvl = 2; desc = anomaly ? 'Mesures hors du régime appris' : espDown ? 'Boîtier hors ligne' : 'Mouvement détecté sur site';
+  } else if (state.motion || !state.wsOpen || state.mqtt === false) {
     lvl = 1;
     desc = !state.wsOpen ? 'Liaison serveur interrompue' : state.mqtt === false ? 'Broker MQTT injoignable'
-      : espDown ? 'Boîtier silencieux' : 'Mouvement en zone surveillée';
+      : 'Mouvement en zone surveillée';
   }
   const el = $('threat');
   if (el.dataset.level !== String(lvl)) {
@@ -556,10 +614,26 @@ function renderLinks() {
   setLink('st-ai', state.modelReady ? 'ok' : 'warn', state.modelReady ? 'Isolation Forest entraîné' : 'Apprentissage en cours');
   setLink('st-cam', state.camOn ? 'ok' : 'bad', state.camOn ? 'Flux MJPEG actif' : 'Flux caméra indisponible');
   $('last-seen').textContent = isFinite(age) ? (age < 3 ? 'temps réel' : `dernière mesure il y a ${Math.round(age)} s`) : 'en attente de données…';
+  renderOffline(age);
   if (state.lastMotion) {
     const s = Math.round((now - state.lastMotion) / 1000);
     $('last-motion').textContent = s < 60 ? `${s} s` : `${Math.round(s / 60)} min`;
   }
+}
+
+const ago = (s) => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
+function renderOffline(age) {
+  let msg = '';
+  if (state.stopped) msg = '';
+  else if (!state.wsOpen && state.wsSeen) msg = 'Liaison serveur perdue · reconnexion automatique en cours';
+  else if (state.mqtt === false) msg = 'Broker MQTT injoignable · les mesures du boîtier n’arrivent plus';
+  else if (state.lastTelemetry && age * 1000 > ESP_SILENT_MS) {
+    msg = `Boîtier hors ligne · dernière mesure il y a ${ago(age)} · vérifier son alimentation et le Wi-Fi`;
+  }
+  const bar = $('offline');
+  if (bar.hidden !== !msg) log(msg ? 'alert' : 'ws', msg || 'Liaison rétablie');
+  bar.hidden = !msg;
+  $('offline-msg').textContent = msg;
 }
 
 // ---------- camera ----------
@@ -672,10 +746,11 @@ async function command(body, label) {
   try {
     const r = await api('/api/v1/command', { method: 'POST', body: JSON.stringify(body) });
     Object.assign(state.device, r.sent);
+    state.sync = { pending: true, at: Date.now() };
     renderDevice();
     const txt = Object.entries(r.sent).map(([k, v]) => `${k}=${v}`).join(' ');
     log('cmd', `${label} → sentinel/cmd ${txt}`);
-    $('cmd-note').textContent = `${label} · publiée sur MQTT (QoS 1) à ${hms(new Date())}`;
+    $('cmd-note').textContent = `${label} · publiée sur MQTT (QoS 1) à ${hms(new Date())}, en attente du boîtier…`;
     toast(label, `Commande publiée : ${txt}`, 'info');
   } catch (e) {
     if (e.message !== '401') {
@@ -695,19 +770,51 @@ function onCommand(m) {
   renderDevice();
   log('cmd', `Actionneurs : ${Object.entries(cmd).map(([k, v]) => `${k}=${v}`).join(' ')} (autre opérateur ou vision)`);
 }
+// etat reellement applique, publie par l'ESP sur sentinel/state apres chaque commande
+function onState(m) {
+  const { kind, ...st } = m;
+  const wasGas = state.device.gas_alarm;
+  Object.assign(state.device, { buzzer: !!st.buzzer, led: st.led ?? state.device.led,
+    gas_alarm: !!st.gas_alarm, stranger: !!st.stranger });
+  state.sync = { pending: false, at: Date.now() };
+  renderDevice();
+  const txt = `buzzer=${!!st.buzzer} led=${st.led}`;
+  $('cmd-note').textContent = `Confirmé par le boîtier à ${hms(new Date())} : ${txt}`
+    + (st.gas_alarm ? ' · alarme gaz en cours, LED maintenue au rouge' : '');
+  log('cmd', `Boîtier : ${txt}${st.gas_alarm ? ' gaz=ALARME' : ''}${st.stranger ? ' inconnu=oui' : ''}`);
+  if (wasGas && !st.gas_alarm) toast('Fin de l’alarme gaz', 'Le niveau de gaz est redescendu sous le seuil', 'info');
+  renderThreat();
+}
 function renderDevice() {
-  const { buzzer, led } = state.device;
-  $('sw-buzz').setAttribute('aria-checked', String(!!buzzer));
-  $('dev-buzz').dataset.on = buzzer ? '1' : '0';
+  const { buzzer, led, gas_alarm: gas, stranger } = state.device;
+  $('sw-buzz').setAttribute('aria-checked', String(!!buzzer || gas));
+  $('dev-buzz').dataset.on = buzzer || gas ? '1' : '0';
   $('dev-led').dataset.c = led;
+  $('dev-gas').dataset.on = gas ? '1' : '0';
+  $('dev-stranger').dataset.on = stranger ? '1' : '0';
   document.querySelectorAll('#seg-led button').forEach((b) => b.classList.toggle('on', b.dataset.led === led));
+  // pendant une alarme gaz le boitier garde buzzer et LED rouge : le bouton le dit
+  $('m-clear').querySelector('span').textContent = gas ? 'gaz : s’arrête quand l’air redevient sain' : 'buzzer off + LED verte';
+  renderSync();
+}
+function renderSync() {
+  const el = $('dev-sync'), { pending, at } = state.sync;
+  if (!at) { el.dataset.s = ''; el.textContent = 'état non confirmé'; return; }
+  const late = pending && Date.now() - at > CONFIRM_MS;
+  el.dataset.s = late ? 'late' : pending ? 'wait' : 'ok';
+  el.textContent = late ? 'pas de réponse du boîtier' : pending ? 'en attente du boîtier…' : `✓ confirmé ${hms(new Date(at))}`;
 }
 $('sw-buzz').onclick = () => command({ buzzer: !state.device.buzzer }, state.device.buzzer ? 'Buzzer coupé' : 'Buzzer activé');
 document.querySelectorAll('#seg-led button').forEach((b) => {
   b.onclick = () => command({ led: b.dataset.led }, `LED ${b.textContent.toLowerCase()}`);
 });
 $('m-alarm').onclick = () => command({ buzzer: true, led: 'red' }, 'Alerte générale');
-$('m-clear').onclick = () => command({ buzzer: false, led: 'green' }, "Levée d'alerte");
+$('m-clear').onclick = async () => {
+  await command({ buzzer: false, led: 'green' }, "Levée d'alerte");
+  if (state.device.gas_alarm) {
+    toast('Alarme gaz toujours active', 'Le boîtier continue de sonner tant que le gaz dépasse le seuil : aérez la pièce.', 'high');
+  }
+};
 
 // ---------- filtres ----------
 for (const [id, key] of [['f-source', 'source'], ['f-sev', 'sev']]) {
@@ -728,7 +835,7 @@ function connect() {
   const ws = new WebSocket(`${proto}://${location.host}/ws?key=${encodeURIComponent(state.key)}`);
   state.ws = ws;
   ws.onopen = () => {
-    state.wsOpen = true;
+    state.wsOpen = state.wsSeen = true;
     wsRetry = 0;
     log('ws', 'Canal temps réel ouvert');
     renderLinks(); renderThreat();
@@ -748,6 +855,7 @@ function connect() {
     if (m.kind === 'telemetry') onTelemetry(m);
     else if (m.kind === 'alert') onAlert(m);
     else if (m.kind === 'command') onCommand(m);
+    else if (m.kind === 'state') onState(m);
   };
 }
 
@@ -772,6 +880,7 @@ async function pollHealth() {
 async function start() {
   state.stopped = false;
   $('login').hidden = true;
+  document.activeElement?.blur();  // rend la main aux raccourcis clavier (F, M, P)
   log('ws', 'Opérateur authentifié');
   try {
     const [tele, alerts] = await Promise.all([api('/api/v1/telemetry?limit=200'), api('/api/v1/alerts?limit=200')]);
@@ -838,17 +947,32 @@ function toggleMute() {
   $('btn-mute').setAttribute('aria-pressed', String(state.muted));
   toast(state.muted ? 'Son coupé' : 'Son activé', 'Alertes sonores', 'info');
 }
+function setPresent(on) {
+  document.body.classList.toggle('present', on);
+  $('btn-present').setAttribute('aria-pressed', String(on));
+  store('localStorage', 'sx-present', on ? '1' : null);
+  drawCharts();
+}
+function togglePresent() {
+  const on = !document.body.classList.contains('present');
+  setPresent(on);
+  toast(on ? 'Mode présentation' : 'Mode opérateur', on ? 'Vue épurée pour le vidéoprojecteur (P pour revenir)' : 'Tous les panneaux sont affichés', 'info');
+}
 function toggleFull() {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen?.();
 }
 $('btn-mute').onclick = toggleMute;
 $('btn-full').onclick = toggleFull;
+$('btn-present').onclick = togglePresent;
+setPresent(load('localStorage', 'sx-present') === '1');
 addEventListener('keydown', (e) => {
-  if (e.target.matches('input')) return;
+  // un champ masque (cle de connexion apres login) ne doit pas bloquer les raccourcis
+  if (e.target.matches('input') && e.target.offsetParent) return;
   if (e.key === 'Escape') closeCritical();
   else if (e.key === 'f' || e.key === 'F') toggleFull();
   else if (e.key === 'm' || e.key === 'M') toggleMute();
+  else if (e.key === 'p' || e.key === 'P') togglePresent();
 });
 
 function tick() {
@@ -856,7 +980,7 @@ function tick() {
   $('clock').textContent = hms(d);
   $('date').textContent = d.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   $('cam-ts').textContent = `${d.toISOString().slice(0, 10)} ${hms(d)}`;
-  if (!state.stopped) { renderLinks(); renderThreat(); drawCharts(); }
+  if (!state.stopped) { renderLinks(); renderThreat(); renderSync(); drawCharts(); }
 }
 
 // ---------- demarrage ----------

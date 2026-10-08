@@ -107,6 +107,17 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 #btn-mute[aria-pressed="true"] .on { display: none; }
 #btn-mute[aria-pressed="true"] .off { display: inline; }
 #btn-mute[aria-pressed="true"] { color: var(--warn); border-color: rgba(255, 176, 32, .4); }
+#btn-present[aria-pressed="true"] { color: var(--acc); border-color: var(--acc); background: rgba(62, 230, 255, .08); }
+
+/* ---------- Bandeau hors ligne ---------- */
+.offline {
+  display: flex; align-items: center; gap: 12px;
+  margin: 14px 22px 0; padding: 11px 16px; border-radius: var(--r);
+  background: rgba(255, 59, 92, .14); border: 1px solid rgba(255, 59, 92, .6);
+  color: #ffd3da; font-size: 14px; letter-spacing: .06em;
+  box-shadow: 0 0 30px -10px var(--bad);
+}
+.offline i { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--bad); box-shadow: 0 0 10px var(--bad); animation: blink .8s infinite; }
 
 /* ---------- Grille ---------- */
 .grid {
@@ -292,7 +303,7 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 
 /* ---------- Commandes ---------- */
 .device {
-  display: flex; justify-content: center; gap: 36px; padding: 12px; margin-bottom: 12px;
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 14px 28px; padding: 12px; margin-bottom: 12px;
   border: 1px dashed var(--line-strong); border-radius: 9px;
   background: radial-gradient(circle at 50% 0, rgba(62, 230, 255, .06), transparent 70%);
 }
@@ -302,6 +313,14 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 .led[data-c="red"] i { background: var(--bad); border-color: #ff9aac; box-shadow: 0 0 22px var(--bad), 0 0 50px rgba(255, 59, 92, .4); }
 .buzz svg { width: 34px; height: 34px; fill: none; stroke: var(--dim); stroke-width: 1.6; stroke-linejoin: round; transition: stroke .3s; }
 .buzz[data-on="1"] svg { stroke: var(--warn); filter: drop-shadow(0 0 8px var(--warn)); animation: ring .25s infinite; }
+.flag svg { width: 34px; height: 34px; fill: none; stroke: var(--dim); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: stroke .3s; }
+.flag[data-on="1"] { color: var(--fg); }
+.flag[data-on="1"] svg { stroke: var(--bad); filter: drop-shadow(0 0 8px var(--bad)); animation: blink .7s infinite; }
+.flag.gas[data-on="1"] svg { stroke: var(--gas); filter: drop-shadow(0 0 8px var(--gas)); }
+.sync { margin-left: auto; font: 11px var(--mono); letter-spacing: .04em; text-transform: none; color: var(--dim); }
+.sync[data-s="wait"] { color: var(--warn); }
+.sync[data-s="ok"] { color: var(--ok); }
+.sync[data-s="late"] { color: var(--bad); }
 @keyframes ring { 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
 
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
@@ -344,7 +363,7 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 .filters { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .alert-list, .console { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 320px; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
 .alert-list li {
-  display: grid; grid-template-columns: 4px 74px 1fr auto; gap: 4px 12px; align-items: center;
+  display: grid; grid-template-columns: 4px 74px 1fr auto auto; gap: 4px 12px; align-items: center;
   padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line);
 }
 .alert-list li.new { animation: slide .5s ease; }
@@ -361,6 +380,20 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
 .sev-high { --s: var(--bad); }
 .sev-critical { --s: var(--crit); }
 .alert-list .pill { color: var(--s, var(--acc)); }
+.alert-list .ack {
+  grid-row: span 2; padding: 5px 9px; border-radius: 6px; font-size: 11px; letter-spacing: .04em;
+  background: transparent; border: 1px solid var(--line-strong); color: var(--mut); transition: all .2s;
+}
+.alert-list .ack:hover:not(:disabled) { border-color: var(--ok); color: var(--ok); }
+.alert-list .ack:disabled { border-color: transparent; color: var(--ok); cursor: default; }
+.alert-list li.acked { opacity: .5; }
+.alert-list li.acked::before { box-shadow: none; }
+.ack-all {
+  margin-left: auto; padding: 4px 10px; border-radius: 6px; font-size: 11px; letter-spacing: .06em; text-transform: none;
+  background: transparent; border: 1px solid var(--line-strong); color: var(--mut); transition: all .2s;
+}
+.ack-all:hover:not(:disabled) { border-color: var(--ok); color: var(--ok); }
+.ack-all:disabled { opacity: .4; cursor: default; }
 .empty { padding: 30px 0; text-align: center; color: var(--dim); font-size: 13px; letter-spacing: .1em; }
 
 /* ---------- Controle d'acces ---------- */
@@ -486,9 +519,29 @@ body[data-level="3"] .bg, body[data-level="4"] .bg {
   .brand p { display: none; }
   .clock { display: none; }
   .macros, .crit-actions { grid-template-columns: 1fr; }
-  .alert-list li { grid-template-columns: 4px 60px 1fr; }
+  .alert-list li { grid-template-columns: 4px 60px 1fr auto; }
+  .offline { margin: 12px 16px 0; font-size: 13px; }
   .alert-list .tag { display: none; }
 }
+/* ---------- Mode presentation (P) : vue epuree pour le videoprojecteur ---------- */
+body.present .log, body.present .access, body.present .chart-ai { display: none; }
+body.present .gauge { width: min(100%, 300px); }
+body.present .gauge-label b { font-size: 34px; }
+body.present .gauge-label span { font-size: 15px; }
+body.present .value b { font-size: 48px; }
+body.present .panel h2 { font-size: 14px; }
+body.present .top { border-bottom-color: var(--acc); box-shadow: 0 1px 24px -8px var(--acc); }
+@media (min-width: 1281px) {
+  body.present .threat { grid-column: span 4; }
+  body.present .metrics { grid-column: span 8; }
+  body.present .cam, body.present .chart-env { grid-column: span 6; }
+  body.present .chart-gas, body.present .controls, body.present .alerts { grid-column: span 4; }
+}
+@media (min-width: 901px) and (max-width: 1280px) {
+  body.present .threat, body.present .metrics, body.present .cam, body.present .chart-env { grid-column: span 3; }
+  body.present .chart-gas, body.present .controls, body.present .alerts { grid-column: span 2; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
