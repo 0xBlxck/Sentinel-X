@@ -128,10 +128,11 @@ void tuneTick() {
   digitalWrite(PIN_BUZZER, tuneStep % 2 == 0 ? BUZZER_ON : BUZZER_OFF);
 }
 
+void ledTick();  // plus bas : applique la couleur ou le clignotement en cours
+
 void setLed(const String &color) {
   ledState = color == "red" || color == "green" ? color : "off";
-  digitalWrite(PIN_LED_RED, color == "red");
-  digitalWrite(PIN_LED_GREEN, color == "green");
+  ledTick();  // seul ledTick ecrit les broches (sinon son cache de l'etat des broches serait faux)
 }
 
 // ---------- Ecran OLED 128x64 ----------
@@ -143,6 +144,28 @@ int curGas = 0;
 bool curMotion = false;
 String welcomeName;
 unsigned long welcomeUntil = 0, strangerUntil = 0, lastOled = 0;
+
+// ---------- Clignotement de la LED ----------
+// Par-dessus la couleur demandee (ledState) : rouge clignotant pendant une alarme (serveur ou gaz),
+// vert clignotant pendant l'accueil d'une personne reconnue. Sinon, couleur fixe demandee.
+#define BLINK_ALARM_MS 250
+#define BLINK_ACCESS_MS 150
+void ledTick() {
+  bool red, green;
+  if (buzzerOn || gasAlarm) {
+    red = (millis() / BLINK_ALARM_MS) % 2;
+    green = false;
+  } else if (millis() < welcomeUntil) {
+    red = false;
+    green = (millis() / BLINK_ACCESS_MS) % 2;
+  } else {
+    red = ledState == "red";
+    green = ledState == "green";
+  }
+  static int8_t lastRed = -1, lastGreen = -1;  // on n'ecrit les broches qu'au changement
+  if (red != lastRed) { digitalWrite(PIN_LED_RED, red); lastRed = red; }
+  if (green != lastGreen) { digitalWrite(PIN_LED_GREEN, green); lastGreen = green; }
+}
 
 void centerText(const String &s, int y, int size) {
   oled.setTextSize(size);
@@ -500,6 +523,7 @@ void loop() {
   tuneTick();
   networkStep();
   tuneTick();
+  ledTick();
   if (mqtt.connected()) mqtt.loop();
   publishState();
   if (millis() > 1500) oledTick();  // laisse l'ecran de demarrage visible
