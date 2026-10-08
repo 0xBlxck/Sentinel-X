@@ -17,14 +17,17 @@ Dernière mise à jour : 2026-10-06 (après refonte du dashboard). Cocher au fur
 - [x] Base de données : tables `telemetry` et `alerts` créées
 - [x] Conteneurs durcis (non-root, `cap_drop`, base non exposée)
 - [x] Secrets hors Git (`.env`, certificats, `config.h` ignorés)
-- [~] Réseau de table : fonctionne avec le partage de connexion du S25 (2,4 GHz, WPA2)
+- [~] Réseau de table : fonctionne avec le partage de connexion du S25 puis de l'iPhone (2,4 GHz : activer « Maximiser la compatibilité » sur iPhone)
   - [ ] Point d'accès **dédié et stable** (clé Wi-Fi USB ou routeur myDiL) pour la démo
-  - [ ] Plan d'adressage IP documenté (sous-réseau, IP serveur, IP ESP)
+  - [~] Plan d'adressage IP : hotspot iPhone 172.20.10.0/28, passerelle .1, PC serveur .12, ESP .13 (le PC peut changer d'IP : mettre à jour `MQTT_HOST`)
+  - [x] Certificat serveur réémis (même CA) pour 172.20.10.1-14 + 10.176.167.114 : valable quelle que soit l'IP du PC sur le hotspot
 - [ ] Supervision CPU / RAM / volume des logs MQTT (MCO)
 
 ## 2. Backend / API (DEV)
 - [x] `POST /api/v1/alerts` (testé, 401 sans clé, 201 avec)
 - [x] `POST /api/v1/command` (buzzer, LED) : l'API publie bien
+- [~] Retour d'état : l'ESP publie `sentinel/state` (retenu) après chaque commande, l'API le relaie au dashboard (codé, à tester avec le boîtier)
+- [~] Alerte `gas` critique quand le boîtier déclenche son alarme gaz locale ; mesures de préchauffage MQ-2 exclues de l'IA (codé, à tester)
 - [x] `GET /api/v1/telemetry`, `GET /api/v1/alerts`, `GET /api/v1/health`
 - [x] Réception MQTT → base de données (68+ mesures réelles de l'ESP)
 - [x] WebSocket `/ws` temps réel (vérifié dans Chrome avec le simulateur)
@@ -33,21 +36,24 @@ Dernière mise à jour : 2026-10-06 (après refonte du dashboard). Cocher au fur
 - [x] Centre de commandement refait (sans dépendance, hors Internet) : niveau de menace, tuiles capteurs, courbes avec marqueurs d'anomalie, score IA, journal système
 - [x] Courbes température / humidité / gaz, score Isolation Forest (vérifiées dans Chrome)
 - [x] Journal des alertes filtrable (source / gravité), alerte critique plein écran avec sirène
-- [~] Boutons buzzer / LED + macros (commande publiée, retour ESP à tester)
+- [x] Boutons buzzer / LED + macros : 8 commandes reçues et appliquées par l'ESP en Wi-Fi (test du 07/10)
+- [~] Affichage « confirmé par le boîtier » et badge « préchauffage » sur la tuile gaz (codé, à vérifier)
 - [~] Flux webcam intégré avec HUD (à valider avec `vision/detect.py` lancé)
 - [ ] Vérifier l'affichage sur le PC de démo (clé API saisie)
 
 ## 4. Firmware ESP8266 (IoT)
 - [x] Compilation et envoi (PlatformIO) fonctionnent
 - [x] DHT22 : lecture OK (~24-28 °C) après remplacement du capteur
-- [x] OLED détecté (0x3C)
-- [~] OLED : affichage des infos à vérifier visuellement (IP, Wi-Fi, MQTT, mesures)
+- [x] OLED détecté (0x3C) sur SDA=D2 / SCL=D1 après recâblage complet (D1/D2 ne répondaient pas avant : mauvais contact)
+- [x] OLED : écran d'accueil, mesures, IP affichés
+- [~] OLED : écran « MOUVEMENT DETECTE / INCONNU » (PIR + caméra non reconnue) et écran « ! GAZ ! » (codés, à vérifier)
 - [x] Wi-Fi + heure NTP
 - [x] MQTT sur TLS avec vérification du certificat (pas de `setInsecure`)
-- [ ] PIR HC-SR501 : affiche `mvt=1` en permanence → câblage ou temps de chauffe à vérifier
-- [ ] MQ-2 : lit 0 → vérifier câblage, chauffe, et **diviseur de tension sur A0**
+- [x] PIR HC-SR501 : 1 quand quelqu'un bouge, 0 quand la pièce est vide (vérifié après recâblage)
+- [x] MQ-2 : lit ~45 en air propre via le diviseur 10 kΩ / 20 kΩ (vérifié après recâblage)
+- [~] MQ-2 : préchauffage 2 min ignoré + alarme gaz locale sans réseau (seuil 300, arrêt < 250) : seuil à valider avec de la fumée
 - [x] Buzzer actif branché et testé (commande dashboard → pont USB → ESP, accusé `[cmd]`)
-- [x] LED bicolore branchée et testée (rouge / verte / off)
+- [x] LED bicolore branchée et testée (rouge / verte / off), test rouge → vert au démarrage
 - [x] Commande dashboard → ESP (buzzer / LED) testée de bout en bout en pont USB puis en Wi-Fi (hotspot S25, 2,4 GHz) ; alarme visage inconnu → buzzer vérifiée
 - [ ] Alimentation de production (bloc 7,5 V sur VIN, **jamais avec l'USB**)
 
