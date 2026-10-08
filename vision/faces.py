@@ -36,6 +36,21 @@ def fetch(folder: str, name: str) -> str:
     return str(path)
 
 
+def pose(face: np.ndarray) -> float:
+    """Position du nez entre les deux yeux, en coordonnees affines du repere (oeil, oeil, centre
+    de la bouche) : ~0.5 de face, vers 0 ou 1 quand la tete tourne.
+
+    Anti-photo : pour un objet plat (photo, ecran), ces coordonnees ne changent pas, quel que soit
+    le mouvement ou l'inclinaison du support (une transformation affine les conserve). Sur une
+    vraie tete, le nez sort du plan yeux/bouche : il se decale quand la tete tourne (parallaxe).
+    """
+    le, re, nose, rm, lm = face[4:14].reshape(5, 2)
+    m = np.column_stack([re - le, (rm + lm) / 2 - le])
+    if abs(np.linalg.det(m)) < 1e-6:
+        return 0.5
+    return float(np.linalg.solve(m, nose - le)[0])
+
+
 def valid_name(name: str) -> bool:
     return bool(NAME_RE.match(name or "")) and name.strip() == name
 
@@ -120,7 +135,8 @@ class FaceBook:
 
     # ---------- identification ----------
     def identify(self, img: np.ndarray) -> list[dict]:
-        """Pour chaque visage : boite, nom (None = inconnu), similarite, et 'small' si trop loin pour juger."""
+        """Pour chaque visage : boite, nom (None = inconnu), similarite, 'small' si trop loin pour juger,
+        et 'pose' (cf. pose()) pour verifier que c'est une vraie tete et non une photo."""
         out = []
         with self.lock:
             for face in self._detect(img):
@@ -133,5 +149,5 @@ class FaceBook:
                         name, score = person, s
                 known = score >= self.threshold
                 out.append({"box": (x, y, w, h), "name": name if known else None,
-                            "score": round(score, 3), "small": min(w, h) < self.min_size})
+                            "score": round(score, 3), "small": min(w, h) < self.min_size, "pose": pose(face)})
         return out
