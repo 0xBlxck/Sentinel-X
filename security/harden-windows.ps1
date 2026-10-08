@@ -16,6 +16,16 @@ $DefaultSubnet = "172.20.10.0/28"
 $sentinelRules = @("SentinelX-MQTTS", "SentinelX-API", "SentinelX-Camera",
                    "SentinelX-BlockCUPS", "SentinelX-BlockDB", "SentinelX-BlockMSQL")
 
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin -and -not $DryRun) {
+    Write-Host "ERREUR : droits administrateur requis. Rien n'a ete modifie." -ForegroundColor Red
+    Write-Host "Relancer depuis 'Terminal (administrateur)', ou tester avec -DryRun."
+    exit 1
+}
+# une regle refusee doit arreter le script, pas laisser croire que le pare-feu est en place
+$ErrorActionPreference = "Stop"
+
 if ($Undo) {
     $sentinelRules | ForEach-Object { Remove-NetFirewallRule -DisplayName $_ -ErrorAction SilentlyContinue }
     Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultInboundAction NotConfigured
