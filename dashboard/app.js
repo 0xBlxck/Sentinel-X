@@ -17,7 +17,8 @@ const MONO = css.getPropertyValue('--mono');
 
 const LABELS = {
   type: { intrusion: 'Intrusion détectée', anomaly: 'Anomalie capteurs', motion: 'Mouvement détecté',
-    unknown_face: 'Visage inconnu', access: 'Accès autorisé', gas: 'Alarme gaz / fumée' },
+    unknown_face: 'Visage inconnu', access: 'Accès autorisé', gas: 'Alarme gaz / fumée',
+    login: 'Connexion opérateur', spoof: 'Photo / écran suspecté' },
   source: { vision: 'Vision', ml: 'IA', esp8266: 'Boîtier' },
   sev: { info: 'Info', medium: 'Moyenne', high: 'Haute', critical: 'Critique' },
 };
@@ -351,7 +352,7 @@ function toast(title, msg, sev = 'info') {
 // ---------- API ----------
 async function api(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'X-API-Key': state.key, ...opts.headers } });
-  if (r.status === 401) { logout('Clé refusée par le serveur.'); throw new Error('401'); }
+  if (r.status === 401) { logout('Session expirée ou clé refusée.'); throw new Error('401'); }
   if (!r.ok) throw new Error(String(r.status));
   return r.json();
 }
@@ -697,7 +698,7 @@ async function loadFaces() {
 
 function renderFaces(list) {
   const ul = $('faces');
-  if (!list.length) { ul.innerHTML = '<li class="empty">AUCUN VISAGE AUTORISÉ · ALARME INACTIVE</li>'; return; }
+  if (!list.length) { ul.innerHTML = '<li class="empty">AUCUN VISAGE AUTORISÉ · TOUTE PRÉSENCE DÉCLENCHE L’ALARME</li>'; return; }
   ul.replaceChildren(...list.map((f) => {
     const li = document.createElement('li');
     li.innerHTML = '<span class="av"></span><b></b><span></span><button type="button" title="Retirer l’autorisation">✕</button>';
@@ -877,11 +878,12 @@ async function pollHealth() {
 }
 
 // ---------- session ----------
-async function start() {
+async function start(how = 'Opérateur authentifié') {
   state.stopped = false;
   $('login').hidden = true;
+  $('login-cam').removeAttribute('src');  // libere le flux de l'apercu de connexion
   document.activeElement?.blur();  // rend la main aux raccourcis clavier (F, M, P)
-  log('ws', 'Opérateur authentifié');
+  log('ws', how);
   try {
     const [tele, alerts] = await Promise.all([api('/api/v1/telemetry?limit=200'), api('/api/v1/alerts?limit=200')]);
     state.history = tele.map((p) => ({ t: new Date(p.ts).getTime(), temp: p.temp, hum: p.hum, gas: p.gas, motion: p.motion, score: null, anomaly: p.anomaly }))
@@ -902,6 +904,32 @@ async function start() {
   connect();
 }
 
+// Deux modes : reconnaissance faciale (vision/detect.py, POST :8090/auth/face, renvoie un jeton
+// de session signe) ou cle d'API saisie. Le jeton s'utilise exactement comme la cle.
+let loginMode = load('localStorage', 'sx-login-mode') === 'key' ? 'key' : 'face';
+
+function setLoginMode(mode) {
+  loginMode = mode;
+  store('localStorage', 'sx-login-mode', mode);
+  document.querySelectorAll('.login-modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+  $('pane-face').hidden = mode !== 'face';
+  $('pane-key').hidden = mode !== 'key';
+  $('login-err').textContent = '';
+  const cam = $('login-cam');
+  if (mode === 'face' && !$('login').hidden) cam.src = `${CAM}/stream?t=${Date.now()}`;
+  else cam.removeAttribute('src');
+  if (mode === 'key' && !$('login').hidden) $('key').focus();
+}
+document.querySelectorAll('.login-modes button').forEach((b) => (b.onclick = () => setLoginMode(b.dataset.mode)));
+$('login-cam').onload = () => ($('login-cam-box').dataset.state = 'on');
+$('login-cam').onerror = () => ($('login-cam-box').dataset.state = 'off');
+
+function loginFail(msg) {
+  $('login-err').textContent = msg;
+  const box = $('login-form');
+  box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+}
+
 function logout(err) {
   state.stopped = true;
   state.key = '';
@@ -909,24 +937,45 @@ function logout(err) {
   if (state.ws) { const ws = state.ws; state.ws = null; ws.close(); }
   state.wsOpen = false;
   closeCritical();
-  $('login-err').textContent = err || '';
   $('login').hidden = false;
   $('key').value = '';
-  $('key').focus();
-  if (err) {
-    const box = $('login-form');
-    box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
-  }
+  setLoginMode(loginMode);
+  if (err) loginFail(err);
 }
+
+$('face-btn').onclick = async () => {
+  unlockAudio();
+  const btn = $('face-btn'), cam = $('login-cam-box');
+  btn.disabled = true;
+  btn.firstChild.textContent = 'Regardez la caméra, puis tournez la tête';
+  cam.classList.add('scanning');
+  $('login-err').textContent = '';
+  try {
+    const r = await fetch(CAM + '/auth/face', { method: 'POST', signal: AbortSignal.timeout(20000) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { loginFail(body.error ? body.error[0].toUpperCase() + body.error.slice(1) + '.' : `Refus (${r.status}).`); return; }
+    cam.classList.add('granted');
+    state.key = body.token;
+    store('sessionStorage', 'sx-key', body.token);
+    start(`Opérateur ${body.name} authentifié par reconnaissance faciale`);
+  } catch {
+    loginFail('Détecteur vision injoignable : connectez-vous avec la clé d’API.');
+  } finally {
+    btn.disabled = false;
+    btn.firstChild.textContent = 'Scanner mon visage';
+    cam.classList.remove('scanning', 'granted');
+  }
+};
 
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (loginMode !== 'key') return;
   unlockAudio();
   const key = $('key').value.trim();
   $('login-err').textContent = '';
   try {
     const r = await fetch('/api/v1/alerts?limit=1', { headers: { 'X-API-Key': key } });
-    if (r.status === 401) { logout('Clé invalide.'); return; }
+    if (r.status === 401) { $('key').value = ''; loginFail('Clé invalide.'); return; }
     if (!r.ok) throw new Error(r.status);
   } catch (err) {
     $('login-err').textContent = `Serveur injoignable (${err.message}).`;
@@ -934,7 +983,7 @@ $('login-form').addEventListener('submit', async (e) => {
   }
   state.key = key;
   store('sessionStorage', 'sx-key', key);
-  start();
+  start('Opérateur authentifié par clé d’API');
 });
 $('btn-logout').onclick = () => logout();
 

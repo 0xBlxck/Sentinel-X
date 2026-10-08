@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sentinel-X · Centre de commandement</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7z' fill='%2305080d' stroke='%233ee6ff' stroke-width='2'/%3E%3Cpath d='M10 16h4l2-5 2 10 2-5h2' fill='none' stroke='%233ee6ff' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/app.css?v=3">
+<link rel="stylesheet" href="/static/app.css?v=4">
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
@@ -243,11 +243,26 @@
     </svg>
     <h1>SENTINEL<span>-X</span></h1>
     <p>Centre de commandement · accès opérateur</p>
-    <label for="key">Clé d'accès API</label>
-    <input id="key" type="password" spellcheck="false" placeholder="••••••••••••••••" required>
-    <button type="submit" class="big ok"><b>Authentification</b></button>
+    <div class="login-modes" role="tablist" aria-label="Mode d'authentification">
+      <button type="button" role="tab" data-mode="face" aria-selected="true">Reconnaissance faciale</button>
+      <button type="button" role="tab" data-mode="key" aria-selected="false">Clé d'API</button>
+    </div>
+    <div class="login-pane" id="pane-face">
+      <div class="login-cam" id="login-cam-box" data-state="off">
+        <img id="login-cam" alt="Caméra du poste">
+        <span class="scan" aria-hidden="true"></span>
+        <em>Détecteur vision injoignable</em>
+      </div>
+      <button type="button" class="big ok" id="face-btn"><b>Scanner mon visage</b></button>
+      <small>Seul face à la caméra du PC serveur, tournez la tête à gauche puis à droite (les photos sont refusées).</small>
+    </div>
+    <div class="login-pane" id="pane-key" hidden>
+      <label for="key">Clé d'accès API</label>
+      <input id="key" type="password" spellcheck="false" placeholder="••••••••••••••••" required>
+      <button type="submit" class="big ok"><b>Authentification</b></button>
+      <small>Clé conservée pour cette session uniquement.</small>
+    </div>
     <span class="err" id="login-err"></span>
-    <small>Clé conservée pour cette session uniquement.</small>
   </form>
 </div>
 
@@ -271,6 +286,6 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=5"></script>
 </body>
 </html>
