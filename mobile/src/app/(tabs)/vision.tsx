@@ -1,5 +1,5 @@
 // Vision : flux YOLO annote (MJPEG de vision/detect.py) et controle d'acces par reconnaissance faciale.
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert as RNAlert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Screen } from '../../components/chrome';
@@ -16,14 +16,22 @@ function Feed() {
   const det = ss.alerts.find((a) => a.type === 'intrusion' || a.type === 'unknown_face');
   const hot = !!det && ss.now - new Date(det.ts).getTime() < 5000;
   const frame = hot ? C.bad : C.acc;
-  const html = `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+  // page construite une seule fois par serveur : l'ecran se rafraichit chaque seconde (horloge),
+  // et une nouvelle page relancerait le flux a chaque fois. Le flux se reconnecte seul s'il coupe.
+  const html = useMemo(() => `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
     <body style="margin:0;background:#000;overflow:hidden">
-    <img src="${ss.camBase}/stream?t=${Date.now()}" style="width:100vw;height:100vh;object-fit:cover;display:block"></body></html>`;
+    <img id="v" style="width:100vw;height:100vh;object-fit:cover;display:block">
+    <script>
+      var v = document.getElementById('v');
+      function load() { v.src = '${ss.camBase}/stream?t=' + Date.now(); }
+      v.onerror = function () { setTimeout(load, 1000); };
+      load();
+    </script></body></html>`, [ss.camBase]);
   return (
     <View style={[st.feed, hot && { borderColor: C.bad }]}>
       {on ? (
         <WebView
-          key={`cam-${on}`}
+          key={ss.camBase}
           source={{ html, baseUrl: ss.camBase }}
           originWhitelist={['*']}
           mixedContentMode="always"

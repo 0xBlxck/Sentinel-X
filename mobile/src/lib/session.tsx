@@ -375,12 +375,16 @@ function useSessionState() {
         if (alive) setMqtt(null);
       }
     };
+    // sur un hotspot, une reponse en retard ne veut pas dire camera perdue : on ne declare
+    // la camera absente qu'apres 3 echecs de suite (sinon le flux est demonte puis remonte)
+    let camMiss = 0;
     const camera = async () => {
       try {
-        const st: CamStatus = await (await timedFetch(`${camBase}/status`, {}, 1500)).json();
+        const st: CamStatus = await (await timedFetch(`${camBase}/status`, {}, 3000)).json();
+        camMiss = 0;
         if (alive) setCam(st);
       } catch {
-        if (alive) setCam(null);
+        if (alive && ++camMiss >= 3) setCam(null);
       }
     };
     health();
