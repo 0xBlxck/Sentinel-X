@@ -11,3 +11,8 @@ __pycache__/
 vision/vision.log
 vision/models/
 vision/faces/
+
+# outils locaux
+/.vscode/
+.claude/settings.local.json
+*.pdb
