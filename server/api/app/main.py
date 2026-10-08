@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import hmac
 import json
 import os
@@ -33,8 +34,23 @@ loop: asyncio.AbstractEventLoop | None = None
 last_state: dict | None = None  # dernier etat confirme par le boitier
 
 
+def token_ok(token: str) -> bool:
+    """Session ouverte par reconnaissance faciale (vision/detect.py : make_token) :
+    "sx1.<nom base64url>.<expiration>.<HMAC-SHA256>" signe avec l'API_KEY."""
+    parts = token.split(".")
+    if len(parts) != 4 or parts[0] != "sx1" or not parts[2].isdigit() or int(parts[2]) < time.time():
+        return False
+    sig = hmac.new(API_KEY.encode(), ".".join(parts[:3]).encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(parts[3].encode(), sig.encode())
+
+
+def key_ok(key: str) -> bool:
+    """Cle d'API ou jeton de session valide."""
+    return hmac.compare_digest(key.encode(), API_KEY.encode()) or token_ok(key)
+
+
 def require_key(x_api_key: str = Header(default="")) -> None:
-    if not hmac.compare_digest(x_api_key, API_KEY):
+    if not key_ok(x_api_key):
         raise HTTPException(status_code=401, detail="invalid api key")
 
 
@@ -192,7 +208,7 @@ def health():
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket, key: str = ""):
-    if not hmac.compare_digest(key, API_KEY):
+    if not key_ok(key):
         await ws.close(code=4401)
         return
     await ws.accept()
