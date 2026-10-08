@@ -58,6 +58,19 @@ unsigned long lastSend = 0, lastNet = 0;
 bool lastMotion = false;
 bool oledOk = false;
 bool wifiStarted = false;
+
+// Reseaux connus, essayes chacun 15 s a tour de role. L'IP du PC serveur change d'un hotspot
+// a l'autre : chaque reseau a donc sa propre adresse MQTT (couverte par le certificat serveur).
+struct Net { const char *ssid, *pass, *mqtt; };
+const Net NETS[] = {
+  {WIFI_SSID, WIFI_PASS, MQTT_HOST},
+#ifdef WIFI_SSID2
+  {WIFI_SSID2, WIFI_PASS2, MQTT_HOST2},
+#endif
+};
+const uint8_t NET_COUNT = sizeof(NETS) / sizeof(NETS[0]);
+uint8_t netIdx = 0;       // reseau tente (ou connecte)
+int8_t netLinked = -1;    // reseau sur lequel le client MQTT est configure
 bool ntpStarted = false;
 float lastT = NAN, lastH = NAN;
 
@@ -363,22 +376,33 @@ void networkStep() {
                     WiFi.status());
       return;
     }
+    // apres un echec, on passe au reseau suivant
+    if (wifiStarted) netIdx = (netIdx + 1) % NET_COUNT;
     lastBegin = millis();
+    netLinked = -1;
     // Nouvelle tentative propre toutes les 15 s (l'auto-reconnect reste parfois bloque en status 7)
     WiFi.persistent(false);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_STA);
     WiFi.setPhyMode(WIFI_PHY_MODE_11G);  // plus tolerant avec les hotspots Windows
     WiFi.setSleepMode(WIFI_NONE_SLEEP);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.begin(NETS[netIdx].ssid, NETS[netIdx].pass);
     wifiStarted = true;
-    Serial.printf("[wifi] connexion a '%s'...\n", WIFI_SSID);
+    Serial.printf("[wifi] connexion a '%s' (%u/%u)...\n", NETS[netIdx].ssid, netIdx + 1, NET_COUNT);
     return;
   }
 
+  // connecte : le serveur MQTT est celui du reseau obtenu
+  const char *host = NETS[netIdx].mqtt;
+  if (netLinked != netIdx) {
+    if (mqtt.connected()) mqtt.disconnect();
+    mqtt.setServer(host, MQTT_PORT);
+    netLinked = netIdx;
+    Serial.printf("[wifi] OK '%s' ip=%s rssi=%d -> serveur %s\n", NETS[netIdx].ssid,
+                  WiFi.localIP().toString().c_str(), WiFi.RSSI(), host);
+  }
   // TLS : le certificat n'est valide que si l'horloge est a l'heure
   if (!ntpStarted) {
-    Serial.printf("[wifi] OK ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
     configTime(0, 0, "pool.ntp.org", "time.google.com");
     ntpStarted = true;
   }
@@ -388,7 +412,7 @@ void networkStep() {
   }
 
   if (!mqtt.connected()) {
-    Serial.printf("[mqtt] connexion a %s:%d...\n", MQTT_HOST, MQTT_PORT);
+    Serial.printf("[mqtt] connexion a %s:%d...\n", host, MQTT_PORT);
     if (mqtt.connect("sentinel-esp", MQTT_USER, MQTT_PASSWORD)) {
       Serial.println("[mqtt] OK");
       mqtt.subscribe(TOPIC_CMD, 1);
@@ -399,8 +423,8 @@ void networkStep() {
       WiFiClient probe;
       probe.setTimeout(3000);
       Serial.printf("[diag] gw=%s mask=%s tcp %s:%d -> %s\n", WiFi.gatewayIP().toString().c_str(),
-                    WiFi.subnetMask().toString().c_str(), MQTT_HOST, MQTT_PORT,
-                    probe.connect(MQTT_HOST, MQTT_PORT) ? "OK" : "ECHEC");
+                    WiFi.subnetMask().toString().c_str(), host, MQTT_PORT,
+                    probe.connect(host, MQTT_PORT) ? "OK" : "ECHEC");
       probe.stop();
     }
   }
@@ -462,7 +486,7 @@ void setup() {
   splash();
 
   tlsClient.setTrustAnchors(&caList);  // verifie le certificat du serveur (pas de setInsecure)
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setServer(NETS[0].mqtt, MQTT_PORT);  // remplace des que le Wi-Fi est connecte
   mqtt.setCallback(onCommand);
   // Hotspot de telephone : latence irreguliere (pics > 250 ms), on tolere plus de silence
   mqtt.setKeepAlive(30);
