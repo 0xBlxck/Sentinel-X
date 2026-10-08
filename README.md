@@ -44,7 +44,8 @@ uv pip install --python .venv/Scripts/python.exe -r requirements.txt
 .venv/Scripts/python.exe detect.py --list                              # cameras disponibles
 API_KEY=<voir .env> .venv/Scripts/python.exe detect.py --camera 0    # flux sur :8090 (8081 = Jenkins)
 ```
-Dashboard : `http://<IP>:8000`, saisir l'API key (`API_KEY` dans `.env`).
+Dashboard : `http://<IP>:8000`. Connexion au choix : **reconnaissance faciale** (se placer devant la webcam
+du PC serveur, visage deja enregistre) ou **cle d'API** (`API_KEY` dans `.env`).
 Raccourcis : `F` plein ecran, `M` son des alertes, `Echap` acquitter une alerte critique.
 
 Sans ESP (developpement, repetition, plan B de demo) : le simulateur publie sur le broker
@@ -59,7 +60,7 @@ uv run --with paho-mqtt python tools/simulate.py --host <IP_DU_CERTIFICAT> --sce
 cd mobile && npm install && npx expo start   # scanner le QR code avec Expo Go (SDK 57)
 ```
 Le telephone doit etre sur le meme Wi-Fi que le PC serveur. Au lancement : adresse du PC (ex. `172.20.10.12`)
-et cle d'API (stockee chiffree sur l'appareil). Onglets : Supervision, Vision, Actionneurs, Alertes, Journal.
+puis reconnaissance faciale (camera du PC) ou cle d'API ; cle ou jeton de session stocke chiffre sur l'appareil. Onglets : Supervision, Vision, Actionneurs, Alertes, Journal.
 Si le telephone ne joint pas Metro (pare-feu Windows), lancer `npx expo start --tunnel`.
 
 ## Brochage (NodeMCU)
@@ -78,6 +79,8 @@ Si le telephone ne joint pas Metro (pare-feu Windows), lancer `npx expo start --
 - `POST /api/v1/command` : `{buzzer:bool, led:"green|red|off"}`
 - `GET /api/v1/alerts`, `GET /api/v1/telemetry`, `GET /api/v1/health`
 - `WS /ws?key=...` : flux temps reel
+- `POST :8090/auth/face` (vision, sans cle) : connexion par le visage, renvoie un jeton de session (12 h)
+  accepte partout a la place de la cle
 
 ## Securite
 - MQTTS (TLS 1.2), certificat serveur verifie par l'ESP (CA embarquee, NTP pour la validite).
@@ -92,8 +95,19 @@ Si le telephone ne joint pas Metro (pare-feu Windows), lancer `npx expo start --
 - **Vision** : YOLOv8n, classe `person`, images 640x480, temps d'inference affiche sur le flux.
 - **Controle d'acces** : reconnaissance faciale OpenCV (YuNet pour detecter, SFace pour reconnaitre,
   similarite cosinus >= 0.363). Visages autorises ajoutes depuis le dashboard (panneau *Controle d'acces*)
-  ou en deposant des photos dans `vision/faces/<nom>/`. Un visage **inconnu** confirme 1,5 s declenche
-  une alerte `critical` (sirene sur le dashboard) et le **buzzer + LED rouge** de l'ESP (`--no-buzzer` pour
-  desactiver). Tant qu'aucun visage n'est enregistre, seule l'alerte de presence YOLO est active.
+  ou en deposant des photos dans `vision/faces/<nom>/`. Regle d'alarme : si quelqu'un est dans le champ
+  pendant 1,5 s **sans qu'aucune personne autorisee n'y soit reconnue**, le **buzzer + LED rouge** de l'ESP
+  sonnent (`--no-buzzer` pour desactiver), avec une alerte `critical` (visage inconnu) ou `high` (visage non
+  visible). Une personne autorisee reconnue (ou vue dans les 15 s) couvre le champ : pas d'alarme, et une
+  alarme en cours s'arrete aussitot. Sans visage enregistre, toute presence declenche l'alarme.
+- **Anti-photo (vivacite)** : avec les 5 points de YuNet, on mesure la position du nez dans le repere
+  yeux/bouche. Sur une photo ou un ecran (plats), elle ne change pas quand on bouge le support ; sur une vraie
+  tete qui tourne, le nez se decale (parallaxe 3D). Un visage autorise ne coupe l'alarme qu'apres un mouvement
+  de tete ; immobile plus de 10 s, il declenche l'alarme `spoof` (photo suspectee). `--no-liveness` desactive
+  cette exigence pour l'alarme. Limite : une video de la personne qui tourne la tete pourrait passer.
+- **Connexion par le visage** : une seule personne devant la camera, reconnue sur 3 images et qui tourne la tete
+  a gauche puis a droite (consigne incrustee dans le flux), en 12 s, uniquement sur des images prises apres la
+  demande ; jeton signe HMAC-SHA256 avec l'`API_KEY` (la cle ne quitte jamais le serveur), alerte `login`
+  journalisee ; une photo reconnue mais immobile est refusee et journalisee (`spoof`).
   Donnees biometriques : stockees uniquement en local, ignorees par Git, enregistrement avec consentement
   de la personne (RGPD art. 9), suppression depuis le dashboard.

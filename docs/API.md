@@ -15,6 +15,16 @@ Pour développer sans l'ESP : `python tools/serial_bridge.py` (ESP en USB) ou le
 Toutes les routes (sauf `/api/v1/health` et `/`) exigent l'en-tête `X-API-Key: <clé>`.
 Le WebSocket prend la clé en paramètre : `ws://<IP>:8000/ws?key=<clé>`.
 
+Deux façons d'obtenir la valeur à mettre dans `X-API-Key` :
+- la **clé d'API** saisie par l'opérateur ;
+- un **jeton de session par reconnaissance faciale** : `POST http://<IP>:8090/auth/face` (sans clé, sans corps).
+  Le détecteur vision attend jusqu'à 12 s qu'un seul visage autorisé soit reconnu sur 3 images et que la
+  tête ait tourné (anti-photo, consigne incrustée dans le flux `:8090/stream`), puis répond
+  `200 {token, name, expires}` (jeton valable 12 h, signé HMAC avec l'`API_KEY`). Sinon `401 {error}` ;
+  `409` si aucun visage n'est enregistré, `429` si une autre tentative est en cours, `503` si la caméra est absente.
+  Le jeton s'utilise exactement comme la clé (en-tête, WebSocket, routes `:8090/faces`). Un `401` ultérieur
+  signifie qu'il a expiré : revenir à l'écran de connexion.
+
 ## Routes
 | Méthode | Route | Rôle |
 |---|---|---|
@@ -44,7 +54,10 @@ Le script `vision/detect.py` expose un flux MJPEG annoté sur `http://<IP>:8090/
 État JSON (sans clé) : `GET :8090/status` → `{camera, cam_fps, infer_ms, persons, faces:[{name, score, small}]}`.
 
 Visages autorisés (en-tête `X-API-Key`) : `GET :8090/faces`, `POST :8090/faces {name}` (capture ~3 s),
-`DELETE :8090/faces/<nom>`. Nouveaux types d'alerte vision : `unknown_face` (critical), `access` (info).
+`DELETE :8090/faces/<nom>`. Types d'alerte vision : `intrusion` (high), `unknown_face` (critical),
+`access` (info), `login` (info, connexion par le visage), `spoof` (visage autorisé immobile : photo ou écran
+suspecté ; critical avec buzzer dans le champ, high pour une tentative de connexion). `intrusion` et `unknown_face` font sonner le buzzer :
+ils ne sont émis que si personne d'autorisé n'est reconnu dans le champ.
 Le WebSocket diffuse aussi `{"kind":"command", buzzer?, led?}` à chaque commande d'actionneur.
 
 ## Idées d'amélioration (au choix)
