@@ -19,6 +19,7 @@ ESP8266 --MQTTS 8883--> Mosquitto --> API (FastAPI) --> PostgreSQL
 | `server/` | docker-compose (mosquitto, db, api) |
 | `vision/` | detection de personnes sur webcam (sur l'hote, pas dans Docker) |
 | `dashboard/` | centre de commandement web (JS natif, sans dependance : fonctionne hors Internet), servi par l'API |
+| `mobile/` | application mobile Expo (iOS / Android) : memes ecrans et commandes que le dashboard |
 | `tools/` | pont USB -> MQTTS, simulateur de boitier (scenarios de demo) |
 | `security/` | PKI/secrets, durcissement Windows et Linux |
 
@@ -52,6 +53,14 @@ avec le compte ESP, les mesures suivent le vrai chemin (MQTT/TLS -> API -> IA ->
 uv run --with paho-mqtt python tools/simulate.py --host <IP_DU_CERTIFICAT> --scenario demo
 # scenarios : normal | chauffe | fuite | intrusion | demo (apprentissage accelere puis boucle)
 ```
+
+## Application mobile
+```bash
+cd mobile && npm install && npx expo start   # scanner le QR code avec Expo Go (SDK 57)
+```
+Le telephone doit etre sur le meme Wi-Fi que le PC serveur. Au lancement : adresse du PC (ex. `172.20.10.12`)
+et cle d'API (stockee chiffree sur l'appareil). Onglets : Supervision, Vision, Actionneurs, Alertes, Journal.
+Si le telephone ne joint pas Metro (pare-feu Windows), lancer `npx expo start --tunnel`.
 
 ## Brochage (NodeMCU)
 | Composant | Broche |

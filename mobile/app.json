@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Sentinel-X",
+    "slug": "sentinel-x",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aethercorp.sentinelx",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Sentinel-X se connecte au serveur de supervision sur le réseau local."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#04070c",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.aethercorp.sentinelx"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "scheme": "sentinelx",
+    "backgroundColor": "#04070c",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
