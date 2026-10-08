@@ -20,6 +20,7 @@ from .ml import AnomalyDetector
 API_KEY = os.environ["API_KEY"]
 TOPIC_TELEMETRY = "sentinel/telemetry"
 TOPIC_CMD = "sentinel/cmd"
+TOPIC_STATE = "sentinel/state"  # etat reel des actionneurs, publie (retenu) par l'ESP
 DASHBOARD_DIR = Path("/app/dashboard")
 
 pool = ConnectionPool(os.environ["DATABASE_URL"], min_size=1, max_size=4, open=False)
@@ -29,6 +30,7 @@ ML_ALERT_COOLDOWN = 30.0  # secondes entre deux alertes d'anomalie
 last_ml_alert = 0.0
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 loop: asyncio.AbstractEventLoop | None = None
+last_state: dict | None = None  # dernier etat confirme par le boitier
 
 
 def require_key(x_api_key: str = Header(default="")) -> None:
@@ -65,34 +67,52 @@ def handle_telemetry(payload: dict) -> None:
         motion = bool(payload.get("motion", 0))
     except (KeyError, TypeError, ValueError):
         return  # payload invalide : ignore
-    score, anomaly = detector.update(temp, hum, gas)
+    # MQ-2 en prechauffage : mesures stockees mais ni apprises ni jugees par l'IA
+    score, anomaly = (None, False) if payload.get("warmup") else detector.update(temp, hum, gas)
     with pool.connection() as conn:
         conn.execute(
             "INSERT INTO telemetry (temp, hum, gas, motion, anomaly_score, is_anomaly) "
             "VALUES (%s,%s,%s,%s,%s,%s)", (temp, hum, gas, motion, score, anomaly))
     events = [{"kind": "telemetry", "temp": temp, "hum": hum, "gas": gas, "motion": motion,
-               "score": score, "anomaly": anomaly, "model_ready": detector.ready}]
+               "score": score, "anomaly": anomaly, "model_ready": detector.ready,
+               "warmup": bool(payload.get("warmup"))}]
     global last_ml_alert
     if anomaly and time.monotonic() - last_ml_alert >= ML_ALERT_COOLDOWN:
         last_ml_alert = time.monotonic()
         events.append({"kind": "alert", **store_alert(
             "ml", "anomaly", "high", "Anomalie detectee par Isolation Forest",
             {"temp": temp, "hum": hum, "gas": gas, "score": score})})
+    if payload.get("gas_alarm_edge"):
+        events.append({"kind": "alert", **store_alert(
+            "esp8266", "gas", "critical", f"Alarme gaz declenchee par le boitier (niveau {gas})",
+            {"gas": gas})})
     if motion and payload.get("motion_edge"):
         events.append({"kind": "alert", **store_alert("esp8266", "motion", "medium", "Mouvement PIR", {})})
     for ev in events:
         asyncio.run_coroutine_threadsafe(broadcast(ev), loop)
 
 
+def handle_state(payload: dict) -> None:
+    """Etat confirme par l'ESP apres chaque commande (thread MQTT)."""
+    global last_state
+    last_state = {k: payload[k] for k in ("buzzer", "led", "gas_alarm", "stranger") if k in payload}
+    asyncio.run_coroutine_threadsafe(broadcast({"kind": "state", **last_state}), loop)
+
+
 def on_connect(client, userdata, flags, reason_code, properties):
     client.subscribe(TOPIC_TELEMETRY)
+    client.subscribe(TOPIC_STATE)
 
 
 def on_message(client, userdata, msg):
     try:
-        handle_telemetry(json.loads(msg.payload))
+        payload = json.loads(msg.payload)
+        if msg.topic == TOPIC_STATE:
+            handle_state(payload)
+        else:
+            handle_telemetry(payload)
     except Exception as exc:  # ne jamais tuer le thread MQTT
-        print("telemetry error:", exc, flush=True)
+        print(f"{msg.topic} error:", exc, flush=True)
 
 
 @asynccontextmanager
@@ -177,6 +197,8 @@ async def ws_endpoint(ws: WebSocket, key: str = ""):
         return
     await ws.accept()
     clients.add(ws)
+    if last_state:  # un dashboard qui arrive voit tout de suite l'etat reel du boitier
+        await ws.send_json({"kind": "state", **last_state})
     try:
         while True:
             await ws.receive_text()

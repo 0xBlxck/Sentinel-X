@@ -37,7 +37,14 @@
 
 #define TOPIC_TELEMETRY "sentinel/telemetry"
 #define TOPIC_CMD "sentinel/cmd"
+#define TOPIC_STATE "sentinel/state"  // etat reel des actionneurs (retenu), publie apres chaque commande
 #define SEND_INTERVAL_MS 2000
+// MQ-2 : la resistance chauffante doit atteindre sa temperature avant des mesures fiables.
+// Seuil sur la valeur brute de A0 (air propre ~50, fumee franche > 400) : l'ESP sonne seul,
+// meme sans reseau. Hysteresis pour ne pas osciller autour du seuil.
+#define GAS_WARMUP_MS 120000
+#define GAS_ALARM_ON 300
+#define GAS_ALARM_OFF 250
 #define NET_RETRY_MS 5000
 #define TIME_VALID 1700000000
 
@@ -54,8 +61,13 @@ bool wifiStarted = false;
 bool ntpStarted = false;
 float lastT = NAN, lastH = NAN;
 
-bool buzzerOn = false;    // alarme en cours (boucle)
+bool buzzerOn = false;    // alarme commandee par le serveur (boucle)
+bool gasAlarm = false;    // alarme gaz locale, independante du serveur
+bool gasEdge = false;     // declenchement a signaler au serveur au prochain envoi
+bool statePending = true; // etat des actionneurs a (re)publier sur TOPIC_STATE
 String ledState = "off";  // GPIO16 (D0) se relit mal : on memorise l'etat demande
+
+bool gasWarming() { return millis() < GAS_WARMUP_MS; }
 
 // ---------- Sonneries ----------
 // Buzzer actif : une seule note, on joue donc sur le rythme. Chaque sonnerie est une suite
@@ -63,6 +75,7 @@ String ledState = "off";  // GPIO16 (D0) se relit mal : on memorise l'etat deman
 const uint16_t TUNE_ALARM[] = {90, 60, 90, 60, 90, 60, 90, 60, 550, 350};  // 4 bips rapides + note longue
 const uint16_t TUNE_ACCESS[] = {45, 45, 45, 45, 160};                      // gazouillis "acces autorise"
 const uint16_t TUNE_BEEP[] = {150};                                        // bip de test
+const uint16_t TUNE_GAS[] = {250, 250};                                    // bips reguliers "evacuez"
 const uint16_t *tune = nullptr;
 uint8_t tuneLen = 0, tuneStep = 0;
 bool tuneLoop = false;
@@ -82,14 +95,19 @@ void stopTune() {
   digitalWrite(PIN_BUZZER, BUZZER_OFF);
 }
 
+// Sonnerie de fond selon les alarmes actives (le gaz passe avant l'intrusion), sinon silence.
+void resumeAlarm() {
+  if (gasAlarm) play(TUNE_GAS, sizeof(TUNE_GAS) / 2, true);
+  else if (buzzerOn) play(TUNE_ALARM, sizeof(TUNE_ALARM) / 2, true);
+  else stopTune();
+}
+
 void tuneTick() {
   if (!tune || millis() - tuneAt < tune[tuneStep]) return;
   tuneAt = millis();
   if (++tuneStep >= tuneLen) {
     if (!tuneLoop) {
-      stopTune();
-      // une sonnerie courte jouee pendant l'alarme lui rend la main
-      if (buzzerOn) play(TUNE_ALARM, sizeof(TUNE_ALARM) / 2, true);
+      resumeAlarm();  // une sonnerie courte jouee pendant une alarme lui rend la main
       return;
     }
     tuneStep = 0;
@@ -167,7 +185,8 @@ void drawNormal() {
   oled.drawFastHLine(0, 45, 128, SSD1306_WHITE);
   // gaz et presence
   oled.setCursor(0, 48);
-  oled.printf("GAZ %d", curGas);
+  if (gasWarming()) oled.printf("GAZ chauffe %lus", (GAS_WARMUP_MS - millis()) / 1000);
+  else oled.printf("GAZ %d", curGas);
   if (curMotion) {
     oled.fillRect(84, 47, 44, 9, SSD1306_WHITE);
     oled.setTextColor(SSD1306_BLACK);
@@ -190,6 +209,14 @@ void drawAlarm() {
   centerText("! ALERTE !", 10, 2);
   centerText("INTRUS DETECTE", 34, 1);
   centerText("visage inconnu", 46, 1);
+}
+
+void drawGasAlarm() {
+  oled.drawRect(0, 0, 128, 64, SSD1306_WHITE);
+  oled.drawRect(2, 2, 124, 60, SSD1306_WHITE);
+  centerText("! GAZ !", 10, 2);
+  centerText("FUMEE / GAZ DETECTE", 32, 1);
+  centerText("niveau " + String(curGas), 46, 1);
 }
 
 void drawStranger() {
@@ -216,8 +243,9 @@ void oledTick() {
   lastOled = millis();
   oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);
-  if (buzzerOn) {
-    drawAlarm();
+  if (gasAlarm || buzzerOn) {
+    if (gasAlarm) drawGasAlarm();
+    else drawAlarm();
     oled.invertDisplay((millis() / 400) % 2);  // clignotement
   } else {
     oled.invertDisplay(false);
@@ -245,11 +273,10 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
   if (deserializeJson(doc, payload, len)) return;
   if (doc["buzzer"].is<bool>()) {
     buzzerOn = doc["buzzer"].as<bool>();
-    if (buzzerOn) play(TUNE_ALARM, sizeof(TUNE_ALARM) / 2, true);
-    else stopTune();
+    resumeAlarm();  // couper le buzzer depuis le serveur ne fait pas taire une alarme gaz
   }
-  // sonnerie ponctuelle : {"chime":"access"} ou {"chime":"beep"} (ignoree pendant l'alarme)
-  if (doc["chime"].is<const char *>() && !buzzerOn) {
+  // sonnerie ponctuelle : {"chime":"access"} ou {"chime":"beep"} (ignoree pendant une alarme)
+  if (doc["chime"].is<const char *>() && !buzzerOn && !gasAlarm) {
     String c = doc["chime"].as<String>();
     if (c == "access") {
       play(TUNE_ACCESS, sizeof(TUNE_ACCESS) / 2, false);
@@ -264,11 +291,44 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
     }
     else if (c == "beep") play(TUNE_BEEP, sizeof(TUNE_BEEP) / 2, false);
   }
-  if (doc["led"].is<const char *>()) setLed(doc["led"].as<String>());
+  // pendant une alarme gaz la LED reste rouge : l'etat publie montre au serveur le refus
+  if (doc["led"].is<const char *>() && !gasAlarm) setLed(doc["led"].as<String>());
   // camera : personne non reconnue (true) ou partie (false)
   if (doc["stranger"].is<bool>()) strangerUntil = doc["stranger"].as<bool>() ? millis() + STRANGER_HOLD_MS : 0;
+  statePending = true;
   Serial.printf("[cmd] buzzer=%d led=%s\n", buzzerOn,
                 ledState.c_str());
+}
+
+// Etat reel des actionneurs, retenu par le broker : le dashboard affiche ce que le boitier
+// fait vraiment, pas seulement ce qui a ete demande.
+void publishState() {
+  if (!statePending || !mqtt.connected()) return;
+  JsonDocument doc;
+  doc["buzzer"] = buzzerOn;
+  doc["led"] = ledState;
+  doc["gas_alarm"] = gasAlarm;
+  doc["stranger"] = millis() < strangerUntil;
+  char buf[96];
+  size_t n = serializeJson(doc, buf);
+  if (mqtt.publish(TOPIC_STATE, (const uint8_t *)buf, n, true)) statePending = false;
+}
+
+// Alarme gaz locale : fonctionne sans Wi-Fi ni serveur.
+void checkGas(int gas) {
+  if (gasWarming()) return;
+  if (!gasAlarm && gas >= GAS_ALARM_ON) {
+    gasAlarm = gasEdge = statePending = true;
+    setLed("red");
+    resumeAlarm();
+    Serial.printf("[gaz] ALARME locale (%d >= %d)\n", gas, GAS_ALARM_ON);
+  } else if (gasAlarm && gas < GAS_ALARM_OFF) {
+    gasAlarm = false;
+    statePending = true;
+    setLed(buzzerOn ? "red" : "green");
+    resumeAlarm();
+    Serial.printf("[gaz] fin d'alarme (%d < %d)\n", gas, GAS_ALARM_OFF);
+  }
 }
 
 #ifdef SERIAL_BRIDGE
@@ -332,6 +392,7 @@ void networkStep() {
     if (mqtt.connect("sentinel-esp", MQTT_USER, MQTT_PASSWORD)) {
       Serial.println("[mqtt] OK");
       mqtt.subscribe(TOPIC_CMD, 1);
+      statePending = true;  // le serveur a pu redemarrer : on lui redonne l'etat reel
     } else {
       Serial.printf("[mqtt] KO rc=%d tls=%d\n", mqtt.state(), tlsClient.getLastSSLError());
       // Diagnostic : le serveur est-il joignable en TCP simple ?
@@ -416,6 +477,7 @@ void loop() {
   networkStep();
   tuneTick();
   if (mqtt.connected()) mqtt.loop();
+  publishState();
   if (millis() > 1500) oledTick();  // laisse l'ecran de demarrage visible
 
   if (millis() - lastSend < SEND_INTERVAL_MS) return;
@@ -434,6 +496,11 @@ void loop() {
   }
   curGas = gas;
   curMotion = motion;
+  checkGas(gas);  // avant tout test reseau : l'alarme gaz ne depend pas du serveur
+  static bool lastStranger = false;
+  bool stranger = millis() < strangerUntil;
+  if (stranger != lastStranger) statePending = true;  // signalement camera expire
+  lastStranger = stranger;
 
   bool edge = motion && !lastMotion;
   lastMotion = motion;
@@ -445,8 +512,12 @@ void loop() {
   doc["gas"] = gas;
   doc["motion"] = motion ? 1 : 0;
   doc["motion_edge"] = edge ? 1 : 0;
-  char buf[160];
+  if (gasWarming()) doc["warmup"] = 1;  // le serveur n'entraine pas l'IA sur ces mesures
+  doc["gas_alarm"] = gasAlarm ? 1 : 0;
+  doc["gas_alarm_edge"] = gasEdge ? 1 : 0;
+  char buf[200];
   size_t n = serializeJson(doc, buf);
   bool sent = mqtt.publish(TOPIC_TELEMETRY, (const uint8_t *)buf, n);
+  if (sent) gasEdge = false;  // declenchement transmis
   Serial.printf("[mqtt] publish %s\n", sent ? "OK" : "ECHEC");
 }
